@@ -6,7 +6,7 @@ getgenv().SliceHub = getgenv().SliceHub or {}
 local BUILD = {
     Tier = "PREMIUM",
     IsPremium = true,
-    Version = "9.8.2.2",
+    Version = "9.8.2.3",
 
     Flags = {
         PremiumCombat = true,
@@ -777,7 +777,7 @@ do
             clientId = deviceId,
             client = "SliceHub",
             version = tostring(
-                Config.Version or "9.8.2.2"
+                Config.Version or "9.8.2.3"
             ),
         }
 
@@ -859,7 +859,10 @@ do
                 .. urlEncode(key)
                 .. "&userId="
                 .. urlEncode(Player.UserId)
-                .. "&requestedTier="\n                .. urlEncode(RequestedTier)\n                .. "&deviceId="\n                .. urlEncode(deviceId)
+                .. "&requestedTier="
+                .. urlEncode(RequestedTier)
+                .. "&deviceId="
+                .. urlEncode(deviceId)
 
             local okGet, getResponse = pcall(
                 Request,
@@ -925,7 +928,10 @@ do
             .. urlEncode(key)
             .. "&userId="
             .. urlEncode(Player.UserId)
-            .. "&requestedTier="\n            .. urlEncode(RequestedTier)\n            .. "&deviceId="\n            .. urlEncode(deviceId)
+            .. "&requestedTier="
+            .. urlEncode(RequestedTier)
+            .. "&deviceId="
+            .. urlEncode(deviceId)
 
         local okHttp, body = pcall(
             game.HttpGet,
@@ -34139,7 +34145,7 @@ local function V5WriteBootstrap()
         string.format("%q", tostring(BUILD.Tier or "FREE")),
         "\n",
         "local BUILD_VERSION = ",
-        string.format("%q", tostring(BUILD.Version or "9.8.2.2")),
+        string.format("%q", tostring(BUILD.Version or "9.8.2.3")),
         "\n",
         "local KEY_API_DEFAULT = ",
         string.format("%q", SLICEHUB_KEY_API_DEFAULT),
@@ -34258,7 +34264,7 @@ environment.SliceHubKeyGateConfig = {
     Source = selectedSource,
     SourceName = selectedName,
     BuildTier = tostring(BUILD.Tier or "FREE"),
-    Version = tostring(BUILD.Version or "9.8.2.2"),
+    Version = tostring(BUILD.Version or "9.8.2.3"),
     ApiUrl = SLICEHUB_KEY_API_DEFAULT,
     DiscordInvite = SLICEHUB_DISCORD_INVITE,
 }
