@@ -6,7 +6,7 @@ getgenv().SliceHub = getgenv().SliceHub or {}
 local BUILD = {
     Tier = "PREMIUM",
     IsPremium = true,
-    Version = "9.8.2.1",
+    Version = "9.8.2.2",
 
     Flags = {
         PremiumCombat = true,
@@ -719,7 +719,46 @@ do
         return ok and result or tostring(value or "")
     end
 
+    local function resolveDeviceId()
+        local value = ""
+
+        local environment =
+            type(getgenv) == "function"
+            and getgenv()
+            or _G
+
+        local getHwid =
+            environment
+            and environment.gethwid
+            or gethwid
+
+        if type(getHwid) == "function" then
+            pcall(function()
+                value = tostring(getHwid())
+            end)
+        end
+
+        if value == "" then
+            pcall(function()
+                value = tostring(
+                    game:GetService(
+                        "RbxAnalyticsService"
+                    ):GetClientId()
+                )
+            end)
+        end
+
+        if value == "" then
+            -- Stable fallback so teleports between AOT:R places do not
+            -- create false HWID mismatches on limited executors.
+            value = "roblox-user:" .. tostring(Player.UserId)
+        end
+
+        return value
+    end
+
     local function validateAtUrl(url, key)
+        local deviceId = resolveDeviceId()
         local requestPayload = {
             key = key,
             scriptKey = key,
@@ -733,9 +772,12 @@ do
             jobId = tostring(game.JobId or ""),
             requestedTier = RequestedTier,
             buildTier = RequestedTier,
+            deviceId = deviceId,
+            hwid = deviceId,
+            clientId = deviceId,
             client = "SliceHub",
             version = tostring(
-                Config.Version or "9.8.2.1"
+                Config.Version or "9.8.2.2"
             ),
         }
 
@@ -817,8 +859,7 @@ do
                 .. urlEncode(key)
                 .. "&userId="
                 .. urlEncode(Player.UserId)
-                .. "&requestedTier="
-                .. urlEncode(RequestedTier)
+                .. "&requestedTier="\n                .. urlEncode(RequestedTier)\n                .. "&deviceId="\n                .. urlEncode(deviceId)
 
             local okGet, getResponse = pcall(
                 Request,
@@ -884,8 +925,7 @@ do
             .. urlEncode(key)
             .. "&userId="
             .. urlEncode(Player.UserId)
-            .. "&requestedTier="
-            .. urlEncode(RequestedTier)
+            .. "&requestedTier="\n            .. urlEncode(RequestedTier)\n            .. "&deviceId="\n            .. urlEncode(deviceId)
 
         local okHttp, body = pcall(
             game.HttpGet,
@@ -34099,7 +34139,7 @@ local function V5WriteBootstrap()
         string.format("%q", tostring(BUILD.Tier or "FREE")),
         "\n",
         "local BUILD_VERSION = ",
-        string.format("%q", tostring(BUILD.Version or "9.8.2.1")),
+        string.format("%q", tostring(BUILD.Version or "9.8.2.2")),
         "\n",
         "local KEY_API_DEFAULT = ",
         string.format("%q", SLICEHUB_KEY_API_DEFAULT),
@@ -34218,7 +34258,7 @@ environment.SliceHubKeyGateConfig = {
     Source = selectedSource,
     SourceName = selectedName,
     BuildTier = tostring(BUILD.Tier or "FREE"),
-    Version = tostring(BUILD.Version or "9.8.2.1"),
+    Version = tostring(BUILD.Version or "9.8.2.2"),
     ApiUrl = SLICEHUB_KEY_API_DEFAULT,
     DiscordInvite = SLICEHUB_DISCORD_INVITE,
 }
