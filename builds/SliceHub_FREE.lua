@@ -6,7 +6,7 @@ getgenv().SliceHub = getgenv().SliceHub or {}
 local BUILD = {
     Tier = "FREE",
     IsPremium = false,
-    Version = "9.8.2.3",
+    Version = "9.8.2.4",
 
     Flags = {
         PremiumCombat = false,
@@ -777,7 +777,7 @@ do
             clientId = deviceId,
             client = "SliceHub",
             version = tostring(
-                Config.Version or "9.8.2.3"
+                Config.Version or "9.8.2.4"
             ),
         }
 
@@ -8812,7 +8812,6 @@ task.spawn(function()
 		if CurrentMode ~= LastMode then
 			LastMode = CurrentMode
 			refreshPreview()
-			notify("Mode changed", "Detected: " .. CurrentMode, "info")
 		end
 		if ActiveTab == "Auto Upgrade" and V94LobbyRefresh.AutoUpgrade then V94LobbyRefresh.AutoUpgrade() end
 	end
@@ -11076,6 +11075,12 @@ local State = {
 	MapPropsHiddenEnabled = PersistentSettings:GetBoolean("Toggles", "MapPropsHiddenEnabled", false),
 	RemoveInjuryKillFlashEnabled = PersistentSettings:GetBoolean("Toggles", "RemoveInjuryKillFlashEnabled", false),
 	RemoveDamageTextEnabled = PersistentSettings:GetBoolean("Toggles", "RemoveDamageTextEnabled", false),
+    OptimizationPreset = PersistentSettings:GetString("Toggles", "OptimizationPreset", "Default"),
+    CleanupDeadTitansEnabled = PersistentSettings:GetBoolean("Toggles", "CleanupDeadTitansEnabled", false),
+    RemoveFogEnabled = PersistentSettings:GetBoolean("Toggles", "RemoveFogEnabled", false),
+    DisablePostProcessingEnabled = PersistentSettings:GetBoolean("Toggles", "DisablePostProcessingEnabled", false),
+    Disable3DRenderingEnabled = PersistentSettings:GetBoolean("Toggles", "Disable3DRenderingEnabled", false),
+    FPSCap = math.clamp(math.floor((PersistentSettings:GetNumber("Toggles", "FPSCap", 60, 30, 999) or 60) + 0.5), 30, 999),
 	AutoRetryEnabled = PersistentSettings:GetBoolean("Automation", "AutoRetryEnabled", false),
 	AutoMissionLimit = math.clamp(math.floor((PersistentSettings:GetNumber("Automation", "MissionLimit", 0, 0, 10) or 0) + 0.5), 0, 10),
 	AutoMissionCount = math.clamp(math.floor((PersistentSettings:GetNumber("Automation", "MissionCount", 0, 0, 10) or 0) + 0.5), 0, 10),
@@ -11214,10 +11219,14 @@ local function capturePersistentSettings()
 			DisableEffectsEnabled = State.DisableEffectsEnabled == true,
 			EcoLoopModeEnabled = State.EcoLoopModeEnabled == true,
 			MapPropsHiddenEnabled = State.MapPropsHiddenEnabled == true,
-		RemoveInjuryKillFlashEnabled = State.RemoveInjuryKillFlashEnabled == true,
-		RemoveDamageTextEnabled = State.RemoveDamageTextEnabled == true,
-			RemoveInjuryKillFlashEnabled = State.RemoveInjuryKillFlashEnabled == true,
-			RemoveDamageTextEnabled = State.RemoveDamageTextEnabled == true,
+            RemoveInjuryKillFlashEnabled = State.RemoveInjuryKillFlashEnabled == true,
+            RemoveDamageTextEnabled = State.RemoveDamageTextEnabled == true,
+            OptimizationPreset = tostring(State.OptimizationPreset or "Default"),
+            CleanupDeadTitansEnabled = State.CleanupDeadTitansEnabled == true,
+            RemoveFogEnabled = State.RemoveFogEnabled == true,
+            DisablePostProcessingEnabled = State.DisablePostProcessingEnabled == true,
+            Disable3DRenderingEnabled = State.Disable3DRenderingEnabled == true,
+            FPSCap = tonumber(State.FPSCap) or 60,
 		},
         Buffs = {
             AutoUseEnabled = State.AutoUseBuffsEnabled == true,
@@ -15608,63 +15617,45 @@ end
 
 
 function V4RaidDirector.DetectRaidName()
-    -- V5.7.7: Loading Docks Stall is a mission even though it spawns Colossal Titans.
-    -- Stale launcher metadata from a previous raid must not turn it into Colossal Raid.
+    -- V9.8.2.4: only live raid evidence may activate a raid runtime.
+    -- Saved lobby selections and MissionObjectiveHistory are intentionally ignored
+    -- because they can survive teleports and falsely lock normal missions in Free.
     local liveMap = nil
     local liveSpecial = nil
     pcall(function()
         liveMap = V3MissionIdentity and V3MissionIdentity.ExactWorkspaceMap and V3MissionIdentity.ExactWorkspaceMap() or nil
         liveSpecial = V3MissionIdentity and V3MissionIdentity.InferSpecialMissionTypeFromTasks and V3MissionIdentity.InferSpecialMissionTypeFromTasks() or nil
     end)
-    if liveMap == "Loading Docks" and liveSpecial == "Stall"
-        and not Workspace:FindFirstChild("Colossal_Boss", true) then
+
+    local armoredBoss = Workspace:FindFirstChild("Armored_Boss", true)
+    local femaleBoss = Workspace:FindFirstChild("Female_Boss", true)
+    local colossalBoss = Workspace:FindFirstChild("Colossal_Boss", true)
+    local attackBoss = Workspace:FindFirstChild("Attack_Boss", true)
+
+    if liveMap == "Loading Docks" and liveSpecial == "Stall" and not colossalBoss then
         return "Unknown"
     end
 
-    local mapAttribute = Workspace:GetAttribute("Map")
-    local raidAttribute =
+    if armoredBoss then return "Armored Raid" end
+    if femaleBoss then return "Female Raid" end
+    if colossalBoss then return "Colossal Raid" end
+    if attackBoss then return "Attack Raid" end
+
+    local raidAttribute = V4RaidDirector.Lower(
         Workspace:GetAttribute("Raid")
         or Workspace:GetAttribute("RaidName")
-        or Workspace:GetAttribute("Objective")
+        or ""
+    )
 
-    local selectedObjective = ""
-    pcall(function()
-        selectedObjective = tostring(MissionObjectiveHistory.SelectedObjective or "")
-    end)
-
-    local combined =
-        V4RaidDirector.Lower(mapAttribute)
-        .. " "
-        .. V4RaidDirector.Lower(raidAttribute)
-        .. " "
-        .. V4RaidDirector.Lower(selectedObjective)
-
-    if string.find(combined, "armored", 1, true) then
-        return "Armored Raid"
-    end
-    if string.find(combined, "female", 1, true) then
-        return "Female Raid"
-    end
-    if string.find(combined, "colossal", 1, true) then
-        return "Colossal Raid"
-    end
-    if string.find(combined, "attack titan", 1, true)
-        or string.find(combined, "attack raid", 1, true) then
-        return "Attack Raid"
-    end
-
-    -- Structural fallbacks.
-    if Workspace:FindFirstChild("Armored_Boss", true) then
-        return "Armored Raid"
-    end
-    if Workspace:FindFirstChild("Female_Boss", true) then
-        return "Female Raid"
-    end
-    if Workspace:FindFirstChild("Colossal_Boss", true) then
-        return "Colossal Raid"
-    end
-    if Workspace:FindFirstChild("Attack_Boss", true) then
-        return "Attack Raid"
+    -- Objective/Map attributes alone are not strong enough; only explicit Raid fields count.
+    if raidAttribute ~= "" then
+        if string.find(raidAttribute, "armored", 1, true) then return "Armored Raid" end
+        if string.find(raidAttribute, "female", 1, true) then return "Female Raid" end
+        if string.find(raidAttribute, "colossal", 1, true) then return "Colossal Raid" end
+        if string.find(raidAttribute, "attack titan", 1, true)
+            or string.find(raidAttribute, "attack raid", 1, true) then
+            return "Attack Raid"
+        end
     end
 
     return "Unknown"
@@ -18647,6 +18638,7 @@ function V4RaidDirector.Refresh()
     V4RaidDirector.Enabled = V4RaidDirector.RaidName ~= "Unknown"
 
     if not V4RaidDirector.Enabled then
+        V4RaidDirector.LastLockedWarning = nil
         V4RaidDirector.CombatPaused = false
         V4RaidDirector.Phase = "Idle"
         V4RaidDirector.BossTitan = nil
@@ -18668,15 +18660,10 @@ function V4RaidDirector.Refresh()
         V4RaidDirector.RawBossPart = nil
         V4RaidDirector.WeakPointText = "Premium only"
         V4RaidDirector.Status = tostring(V4RaidDirector.RaidName) .. " | Premium only in Free build"
-        if State then
-            State.FarmEnabled = false
-            State.BladesEnabled = false
-            State.SpearSupportEnabled = false
-            State.SpearAutoFireEnabled = false
-            State.AutoSkipCutsceneEnabled = false
-            State.RaidAutoSkipEnabled = false
+        if V4RaidDirector.LastLockedWarning ~= V4RaidDirector.RaidName then
+            V4RaidDirector.LastLockedWarning = V4RaidDirector.RaidName
+            warn("[SliceHub Free] " .. tostring(V4RaidDirector.RaidName) .. " automation is unsupported in the Free version.")
         end
-        warn("[SliceHub Free] " .. tostring(V4RaidDirector.RaidName) .. " automation is unsupported in the Free version.")
         return
     end
 
@@ -26113,6 +26100,12 @@ local function normalizeProfile(data)
 		MapPropsHiddenEnabled = booleanOr(data.MapPropsHiddenEnabled, false),
 		RemoveInjuryKillFlashEnabled = booleanOr(data.RemoveInjuryKillFlashEnabled, false),
 		RemoveDamageTextEnabled = booleanOr(data.RemoveDamageTextEnabled, false),
+        OptimizationPreset = tostring(data.OptimizationPreset or "Default"),
+        CleanupDeadTitansEnabled = booleanOr(data.CleanupDeadTitansEnabled, false),
+        RemoveFogEnabled = booleanOr(data.RemoveFogEnabled, false),
+        DisablePostProcessingEnabled = booleanOr(data.DisablePostProcessingEnabled, false),
+        Disable3DRenderingEnabled = booleanOr(data.Disable3DRenderingEnabled, false),
+        FPSCap = math.clamp(math.floor((tonumber(data.FPSCap) or 60) + 0.5), 30, 999),
 		AutoRetryEnabled = booleanOr(data.AutoRetryEnabled, false),
 		AutoMissionLimit = math.clamp(math.floor((tonumber(data.AutoMissionLimit) or 0) + 0.5), 0, 10),
 		TitansPerHit = SliceHubMissionClampTPS(data.TitansPerHit, SliceHubMissionTPSMax()),
@@ -26254,6 +26247,9 @@ do
 	Performance.OriginalLighting = {}
 	Performance.OriginalTerrain = {}
 	Performance.OriginalEffects = setmetatable({}, {__mode = "k"})
+    Performance.OriginalPostEffects = setmetatable({}, {__mode = "k"})
+    Performance.OriginalAtmospheres = setmetatable({}, {__mode = "k"})
+    Performance.DeadTitanSeenAt = setmetatable({}, {__mode = "k"})
 	Performance.HiddenMapProps = {}
     Performance.ColossalCullSuspended = false
 	Performance.LightingSaved = false
@@ -26783,6 +26779,113 @@ do
         connect(game:GetService("Lighting"))
     end
 
+
+    function Performance:SetRemoveFog(enabled)
+        State.RemoveFogEnabled = enabled == true
+        local lighting = game:GetService("Lighting")
+        if State.RemoveFogEnabled then
+            if self.OriginalLighting.FogStart == nil then
+                self.OriginalLighting.FogStart = lighting.FogStart
+                self.OriginalLighting.FogEnd = lighting.FogEnd
+                self.OriginalLighting.FogColor = lighting.FogColor
+            end
+            self.SafeSet(lighting, "FogStart", 100000)
+            self.SafeSet(lighting, "FogEnd", 100000)
+            for _, object in ipairs(lighting:GetChildren()) do
+                if object:IsA("Atmosphere") then
+                    if not self.OriginalAtmospheres[object] then
+                        self.OriginalAtmospheres[object] = {
+                            Density = self.SafeGet(object, "Density"),
+                            Haze = self.SafeGet(object, "Haze"),
+                            Glare = self.SafeGet(object, "Glare"),
+                        }
+                    end
+                    self.SafeSet(object, "Density", 0)
+                    self.SafeSet(object, "Haze", 0)
+                    self.SafeSet(object, "Glare", 0)
+                end
+            end
+        else
+            if self.OriginalLighting.FogStart ~= nil then
+                self.SafeSet(lighting, "FogStart", self.OriginalLighting.FogStart)
+                self.SafeSet(lighting, "FogEnd", self.OriginalLighting.FogEnd)
+                self.SafeSet(lighting, "FogColor", self.OriginalLighting.FogColor)
+            end
+            for object, values in pairs(self.OriginalAtmospheres) do
+                if object and object.Parent and type(values) == "table" then
+                    for property, value in pairs(values) do self.SafeSet(object, property, value) end
+                end
+            end
+        end
+    end
+
+    function Performance:SetPostProcessingDisabled(enabled)
+        State.DisablePostProcessingEnabled = enabled == true
+        local lighting = game:GetService("Lighting")
+        for _, object in ipairs(lighting:GetChildren()) do
+            if object:IsA("PostEffect") then
+                if self.OriginalPostEffects[object] == nil then
+                    self.OriginalPostEffects[object] = self.SafeGet(object, "Enabled")
+                end
+                self.SafeSet(object, "Enabled", not State.DisablePostProcessingEnabled and self.OriginalPostEffects[object] or false)
+            end
+        end
+    end
+
+    function Performance:IsDeadTitanModel(model)
+        if not model or not model:IsA("Model") or not model.Parent then return false end
+        local lower = string.lower(model.Name)
+        if string.find(lower, "boss", 1, true) then return false end
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health > 0 then return false end
+        if string.find(lower, "titan", 1, true) then return true end
+        local parentName = model.Parent and string.lower(model.Parent.Name) or ""
+        return string.find(parentName, "titan", 1, true) ~= nil
+    end
+
+    function Performance:CleanupDeadTitans()
+        if State.CleanupDeadTitansEnabled ~= true then return 0 end
+        local now = os.clock()
+        local removed = 0
+        for _, object in ipairs(Workspace:GetDescendants()) do
+            if object:IsA("Model") and self:IsDeadTitanModel(object) then
+                local firstSeen = self.DeadTitanSeenAt[object]
+                if not firstSeen then
+                    self.DeadTitanSeenAt[object] = now
+                elseif now - firstSeen >= 2.0 then
+                    self.DeadTitanSeenAt[object] = nil
+                    pcall(function() object:Destroy() end)
+                    removed += 1
+                end
+            end
+        end
+        return removed
+    end
+
+    function Performance:SetCleanupDeadTitans(enabled)
+        State.CleanupDeadTitansEnabled = enabled == true
+        if not State.CleanupDeadTitansEnabled then
+            self.DeadTitanSeenAt = setmetatable({}, {__mode = "k"})
+        end
+    end
+
+    function Performance:SetFPSCap(value)
+        value = math.clamp(math.floor((tonumber(value) or 60) + 0.5), 30, 999)
+        State.FPSCap = value
+        local env = type(getgenv) == "function" and getgenv() or _G
+        local setter = env.setfpscap or setfpscap
+        if type(setter) ~= "function" then return false end
+        return pcall(setter, value)
+    end
+
+    function Performance:Set3DRenderingDisabled(enabled)
+        State.Disable3DRenderingEnabled = enabled == true
+        local runService = game:GetService("RunService")
+        return pcall(function()
+            runService:Set3dRenderingEnabled(not State.Disable3DRenderingEnabled)
+        end)
+    end
+
 	function Performance:SetEcoLoops(enabled)
 		State.EcoLoopModeEnabled = enabled == true
 		if State.EcoLoopModeEnabled then
@@ -26801,6 +26904,7 @@ do
 
 	task.spawn(function()
 		local lastPropCullAt = 0
+        local lastDeadCleanupAt = 0
 		while true do
 			task.wait(Config.PerformanceRefreshDelay)
 			if State.PerformanceModeEnabled then
@@ -26809,6 +26913,12 @@ do
 			if State.DisableEffectsEnabled then
 				Performance:ApplyNoEffects()
 			end
+            if State.RemoveFogEnabled then Performance:SetRemoveFog(true) end
+            if State.DisablePostProcessingEnabled then Performance:SetPostProcessingDisabled(true) end
+            if State.CleanupDeadTitansEnabled and os.clock() - lastDeadCleanupAt >= 2.0 then
+                lastDeadCleanupAt = os.clock()
+                Performance:CleanupDeadTitans()
+            end
 			if State.MapPropsHiddenEnabled and os.clock() - lastPropCullAt >= Config.MapPropCullRefreshDelay then
 				lastPropCullAt = os.clock()
 				Performance:ApplyMapPropCull()
@@ -26821,6 +26931,11 @@ end
 pcall(function()
     if State.RemoveInjuryKillFlashEnabled then Performance:SetRemoveInjuryKillFlash(true) end
     if State.RemoveDamageTextEnabled then Performance:SetRemoveDamageText(true) end
+    if State.RemoveFogEnabled then Performance:SetRemoveFog(true) end
+    if State.DisablePostProcessingEnabled then Performance:SetPostProcessingDisabled(true) end
+    if State.CleanupDeadTitansEnabled then Performance:SetCleanupDeadTitans(true) end
+    Performance:SetFPSCap(State.FPSCap)
+    if State.Disable3DRenderingEnabled then Performance:Set3DRenderingDisabled(true) end
 end)
 
 ---------------------------------------------------------------------
@@ -28299,9 +28414,14 @@ end)()
         return button
     end
 
+    local lastLockedPageNoticeAt = 0
     function setV1Page(name)
         if name == "Waves" and not SliceHubWaveAutomationAllowed() then
-            showNotification("Premium only", "This tab unlocks only when you have Premium.", "info")
+            local now = os.clock()
+            if now - lastLockedPageNoticeAt >= 0.75 then
+                lastLockedPageNoticeAt = now
+                showNotification("Premium only", "This tab unlocks only when you have Premium.", "info")
+            end
             return
         end
         local target = V1Pages[name]
@@ -28323,7 +28443,7 @@ end)()
         print("[SliceHub V3] page ->", name)
     end
 
-    local tabNames = {"Welcome", "Farm", "Raids", "Waves", "Blades", "Spears", "Combat", "Stall", "Stats", "Webhook", "Visuals", "Config", "Settings", "Discord"}
+    local tabNames = {"Welcome", "Farm", "Raids", "Waves", "Blades", "Spears", "Combat", "Stall", "Stats", "Webhook", "Optimization", "Config", "Settings", "Discord"}
     for index, name in ipairs(tabNames) do
         createV1Page(name)
         if name == "Welcome" or name == "Blades" or name == "Stats" or name == "Config" then
@@ -28344,13 +28464,6 @@ end)()
             setV1Page(name)
         end
         button.Activated:Connect(activatePage)
-        button.MouseButton1Click:Connect(activatePage)
-        button.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1
-                or input.UserInputType == Enum.UserInputType.Touch then
-                activatePage()
-            end
-        end)
         button.MouseEnter:Connect(function()
             if activeV1Page ~= name then
                 tween(button, 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
@@ -28610,7 +28723,7 @@ end)()
     wavesPage = createSectionHost(V1Pages.Waves, 10, "WavesAutomation")
     combatPage = createSectionHost(V1Pages.Combat, 10, "CombatCore")
     configPage = createSectionHost(V1Pages.Config, 10, "ConfigCore")
-    performancePage = createSectionHost(V1Pages.Visuals, 10, "VisualPerformance")
+    performancePage = createSectionHost(V1Pages.Optimization, 10, "VisualPerformance")
     statsPage = createSectionHost(V1Pages.Stats, 10, "StatsCore")
     settingsPage = createSectionHost(V1Pages.Settings, 10, "SettingsCore")
     settingsOuterPage = V1Pages.Settings
@@ -28636,7 +28749,7 @@ end)()
         Blades = V1Pages.Blades,
         Auto = V1Pages.Farm,
         Config = V1Pages.Config,
-        Performance = V1Pages.Visuals,
+        Performance = V1Pages.Optimization,
         Stats = V1Pages.Stats,
         Spears = V1Pages.Spears,
         Stall = V1Pages.Stall,
@@ -28662,7 +28775,7 @@ end)()
             Blades = "Blades",
             Auto = "Farm",
             Config = "Config",
-            Performance = "Visuals",
+            Performance = "Optimization",
             Stats = "Stats",
             Spears = "Spears",
             Stall = "Stall",
@@ -30502,56 +30615,178 @@ end)
 ;(function() -- performance page scoped to avoid Luau's 200 local-register limit
 	local performanceUiReady = false
 
-	Controls.LowGraphics = createToggle(performancePage, 1, "Low Graphics Mode", "Disables shadows, terrain decoration, and heavy water visuals.", State.PerformanceModeEnabled, function(value)
+
+    local presetCard = Instance.new("Frame")
+    presetCard.Name = "OptimizationPreset"
+    presetCard.LayoutOrder = 1
+    presetCard.Size = UDim2.new(1, 0, 0, 76)
+    presetCard.BackgroundColor3 = Theme.CardSoft
+    presetCard.BorderSizePixel = 0
+    presetCard.Parent = performancePage
+    Instance.new("UICorner", presetCard).CornerRadius = UDim.new(0, 6)
+
+    local presetTitle = Instance.new("TextLabel")
+    presetTitle.Position = UDim2.fromOffset(10, 6)
+    presetTitle.Size = UDim2.new(1, -20, 0, 18)
+    presetTitle.BackgroundTransparency = 1
+    presetTitle.Font = Enum.Font.GothamBold
+    presetTitle.Text = "OPTIMIZATION PRESET • " .. tostring(State.OptimizationPreset or "Default")
+    presetTitle.TextColor3 = Theme.Text
+    presetTitle.TextSize = 11
+    presetTitle.TextXAlignment = Enum.TextXAlignment.Left
+    presetTitle.Parent = presetCard
+
+    local presetButtons = {}
+    local function setPresetButtonVisuals(active)
+        for name, button in pairs(presetButtons) do
+            button.BackgroundColor3 = name == active and Theme.Accent or Theme.ElementBg
+            button.TextColor3 = name == active and Color3.fromRGB(255,255,255) or Theme.TextMuted
+        end
+        presetTitle.Text = "OPTIMIZATION PRESET • " .. active
+    end
+
+    local function applyOptimizationPreset(name)
+        State.OptimizationPreset = name
+        if name == "Default" then
+            Controls.LowGraphics:Set(false, true)
+            Controls.NoEffects:Set(false, true)
+            Controls.EcoLoops:Set(false, true)
+            Controls.CleanupDeadTitans:Set(false, true)
+            Controls.RemoveFog:Set(false, true)
+            Controls.DisablePostProcessing:Set(false, true)
+        elseif name == "Balanced" then
+            Controls.LowGraphics:Set(true, true)
+            Controls.NoEffects:Set(true, true)
+            Controls.EcoLoops:Set(false, true)
+            Controls.CleanupDeadTitans:Set(true, true)
+            Controls.RemoveFog:Set(true, true)
+            Controls.DisablePostProcessing:Set(true, true)
+        elseif name == "Max FPS" then
+            Controls.LowGraphics:Set(true, true)
+            Controls.NoEffects:Set(true, true)
+            Controls.EcoLoops:Set(true, true)
+            Controls.CleanupDeadTitans:Set(true, true)
+            Controls.RemoveFog:Set(true, true)
+            Controls.DisablePostProcessing:Set(true, true)
+            Controls.MapProps:Set(true, true)
+            Controls.RemoveInjuryKillFlash:Set(true, true)
+            Controls.RemoveDamageText:Set(true, true)
+        end
+        setPresetButtonVisuals(name)
+        saveSettingsIfReady()
+    end
+
+    for index, name in ipairs({"Default", "Balanced", "Max FPS"}) do
+        local button = Instance.new("TextButton")
+        button.Name = name:gsub("%s+", "") .. "Preset"
+        button.Position = UDim2.new((index - 1) / 3, 8, 0, 32)
+        button.Size = UDim2.new(1/3, -12, 0, 34)
+        button.BackgroundColor3 = Theme.ElementBg
+        button.BorderSizePixel = 0
+        button.Font = Enum.Font.GothamBold
+        button.Text = name
+        button.TextSize = 10
+        button.AutoButtonColor = false
+        button.Parent = presetCard
+        Instance.new("UICorner", button).CornerRadius = UDim.new(0, 5)
+        presetButtons[name] = button
+        button.Activated:Connect(function() applyOptimizationPreset(name) end)
+    end
+
+	Controls.LowGraphics = createToggle(performancePage, 2, "Low Graphics Mode", "Disables shadows, terrain decoration, and heavy water visuals.", State.PerformanceModeEnabled, function(value)
 		Performance:SetLowGraphics(value)
 		saveSettingsIfReady()
-		if performanceUiReady then
-			showNotification(value and "Performance on" or "Performance off", "Low graphics mode " .. (value and "enabled." or "restored."), value and "success" or "info")
-		end
 	end)
 
-	Controls.NoEffects = createToggle(performancePage, 2, "Disable Effects", "Turns off particles, trails, beams, smoke, fire, and sparkles.", State.DisableEffectsEnabled, function(value)
+	Controls.NoEffects = createToggle(performancePage, 3, "Disable Effects", "Turns off particles, trails, beams, smoke, fire, and sparkles.", State.DisableEffectsEnabled, function(value)
 		Performance:SetNoEffects(value)
 		saveSettingsIfReady()
-		if performanceUiReady then
-			showNotification(value and "Effects disabled" or "Effects restored", value and "Visual effects will stay disabled while this is on." or "Saved effect states restored.", value and "success" or "info")
-		end
 	end)
 
-	Controls.EcoLoops = createToggle(performancePage, 3, "Eco Loop Mode", "Reduces script scan frequency to lower CPU usage while farming.", State.EcoLoopModeEnabled, function(value)
+	Controls.EcoLoops = createToggle(performancePage, 4, "Eco Loop Mode", "Reduces non-critical scan frequency to lower CPU usage while farming.", State.EcoLoopModeEnabled, function(value)
 		Performance:SetEcoLoops(value)
 		saveSettingsIfReady()
-		if performanceUiReady then
-			showNotification(value and "Eco loops enabled" or "Eco loops disabled", value and "Some checks run slower for better FPS." or "Default loop speed restored.", value and "success" or "info")
-		end
 	end)
 
+    Controls.CleanupDeadTitans = createToggle(performancePage, 5, "Cleanup Dead Titans", "Locally removes dead non-boss Titan models after a short safety delay.", State.CleanupDeadTitansEnabled, function(value)
+        Performance:SetCleanupDeadTitans(value)
+        saveSettingsIfReady()
+    end)
 
-	Controls.MapProps = createToggle(performancePage, 4, "Hide Map Props", "Locally removes houses, walls, trees, crates, and decor to raise FPS.", State.MapPropsHiddenEnabled, function(value)
-		local moved = Performance:SetMapPropCull(value)
+    Controls.RemoveFog = createToggle(performancePage, 6, "Remove Fog", "Removes Lighting fog and Atmosphere haze locally; restores them when disabled.", State.RemoveFogEnabled, function(value)
+        Performance:SetRemoveFog(value)
+        saveSettingsIfReady()
+    end)
+
+    Controls.DisablePostProcessing = createToggle(performancePage, 7, "Disable Post Processing", "Disables blur, bloom, depth of field, sun rays, and color effects.", State.DisablePostProcessingEnabled, function(value)
+        Performance:SetPostProcessingDisabled(value)
+        saveSettingsIfReady()
+    end)
+
+	Controls.MapProps = createToggle(performancePage, 8, "Hide Map Props", "Locally removes houses, walls, trees, crates, and decor to raise FPS.", State.MapPropsHiddenEnabled, function(value)
+		Performance:SetMapPropCull(value)
 		saveSettingsIfReady()
-		if performanceUiReady then
-			if value then
-				showNotification("Map props hidden", tostring(moved or 0) .. " props moved out of Workspace locally.", "success")
-			else
-				showNotification("Map props restored", "Hidden props restored for this session.", "info")
-			end
-		end
 	end)
 
-
-    Controls.RemoveInjuryKillFlash = createToggle(performancePage, 5, "Remove Injury/Kill Flash", "Hides the injury/kill screen flash without touching Black Flash skill effects.", State.RemoveInjuryKillFlashEnabled, function(value)
+    Controls.RemoveInjuryKillFlash = createToggle(performancePage, 9, "Remove Injury/Kill Flash", "Hides the injury/kill screen flash without touching Black Flash skill effects.", State.RemoveInjuryKillFlashEnabled, function(value)
         Performance:SetRemoveInjuryKillFlash(value)
         saveSettingsIfReady()
     end)
 
-    Controls.RemoveDamageText = createToggle(performancePage, 6, "Remove Damage Text", "Hides world-space floating damage numbers while keeping objective and result UI intact.", State.RemoveDamageTextEnabled, function(value)
+    Controls.RemoveDamageText = createToggle(performancePage, 10, "Remove Damage Text", "Hides world-space floating damage numbers while keeping objective and result UI intact.", State.RemoveDamageTextEnabled, function(value)
         Performance:SetRemoveDamageText(value)
         saveSettingsIfReady()
     end)
 
+    Controls.Disable3DRendering = createToggle(performancePage, 11, "Disable 3D Rendering", "Black-screen farming mode. The GUI remains usable and the world returns when disabled.", State.Disable3DRenderingEnabled, function(value)
+        local ok = Performance:Set3DRenderingDisabled(value)
+        saveSettingsIfReady()
+        if performanceUiReady and not ok then
+            showNotification("Unsupported", "This executor cannot toggle Roblox 3D rendering.", "error")
+        end
+    end)
+
+    local fpsCard = Instance.new("Frame")
+    fpsCard.LayoutOrder = 12
+    fpsCard.Size = UDim2.new(1, 0, 0, 64)
+    fpsCard.BackgroundColor3 = Theme.CardSoft
+    fpsCard.BorderSizePixel = 0
+    fpsCard.Parent = performancePage
+    Instance.new("UICorner", fpsCard).CornerRadius = UDim.new(0, 6)
+    local fpsLabel = Instance.new("TextLabel")
+    fpsLabel.Position = UDim2.fromOffset(10, 5)
+    fpsLabel.Size = UDim2.new(1, -20, 0, 18)
+    fpsLabel.BackgroundTransparency = 1
+    fpsLabel.Font = Enum.Font.GothamMedium
+    fpsLabel.Text = "FPS CAP • " .. tostring(State.FPSCap == 999 and "Unlimited" or State.FPSCap)
+    fpsLabel.TextColor3 = Theme.Text
+    fpsLabel.TextSize = 12
+    fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+    fpsLabel.Parent = fpsCard
+    for index, value in ipairs({30, 60, 120, 144, 999}) do
+        local button = Instance.new("TextButton")
+        button.Position = UDim2.new((index - 1) / 5, 8, 0, 29)
+        button.Size = UDim2.new(1/5, -10, 0, 27)
+        button.BackgroundColor3 = Theme.ElementBg
+        button.BorderSizePixel = 0
+        button.Font = Enum.Font.GothamBold
+        button.Text = value == 999 and "MAX" or tostring(value)
+        button.TextColor3 = Theme.TextMuted
+        button.TextSize = 9
+        button.Parent = fpsCard
+        Instance.new("UICorner", button).CornerRadius = UDim.new(0, 4)
+        button.Activated:Connect(function()
+            State.FPSCap = value
+            local ok = Performance:SetFPSCap(value)
+            fpsLabel.Text = "FPS CAP • " .. tostring(value == 999 and "Unlimited" or value)
+            saveSettingsIfReady()
+            if not ok then showNotification("Unsupported", "setfpscap is unavailable in this executor.", "error") end
+        end)
+    end
+    setPresetButtonVisuals(State.OptimizationPreset or "Default")
+
 	local performanceInfo = Instance.new("Frame")
-	performanceInfo.LayoutOrder = 7
+	performanceInfo.LayoutOrder = 13
 	performanceInfo.Size = UDim2.new(1, 0, 0, 78)
 	performanceInfo.BackgroundColor3 = Theme.CardSoft
 	performanceInfo.BackgroundTransparency = 0
@@ -30583,7 +30818,7 @@ end)
 	performanceInfoText.Size = UDim2.new(1, -32, 0, 36)
 	performanceInfoText.BackgroundTransparency = 1
 	performanceInfoText.Font = Enum.Font.Gotham
-	performanceInfoText.Text = "Low Graphics + Disable Effects are safest. Damage Text and Injury/Kill Flash removal are lightweight. Colossal raids suspend map-prop culling automatically."
+	performanceInfoText.Text = "Balanced is the safe everyday preset. Cleanup removes only dead non-boss Titans. Disable 3D Rendering intentionally shows a black world until switched off."
 	performanceInfoText.TextColor3 = Theme.TextMuted
 	performanceInfoText.TextSize = 10
 	performanceInfoText.TextWrapped = true
@@ -30909,6 +31144,13 @@ function applyProfile(profile, autoLoadMode)
 	if Controls.RemoveDamageText then
 		Controls.RemoveDamageText:Set(profile.RemoveDamageTextEnabled == true, true)
 	end
+    State.OptimizationPreset = tostring(profile.OptimizationPreset or "Default")
+    if Controls.CleanupDeadTitans then Controls.CleanupDeadTitans:Set(profile.CleanupDeadTitansEnabled == true, true) end
+    if Controls.RemoveFog then Controls.RemoveFog:Set(profile.RemoveFogEnabled == true, true) end
+    if Controls.DisablePostProcessing then Controls.DisablePostProcessing:Set(profile.DisablePostProcessingEnabled == true, true) end
+    if Controls.Disable3DRendering then Controls.Disable3DRendering:Set(profile.Disable3DRenderingEnabled == true, true) end
+    State.FPSCap = math.clamp(math.floor((tonumber(profile.FPSCap) or 60) + 0.5), 30, 999)
+    Performance:SetFPSCap(State.FPSCap)
 	if Controls.AutoMissionLimit then
 		Controls.AutoMissionLimit:Set(profile.AutoMissionLimit or 0, true)
 	end
