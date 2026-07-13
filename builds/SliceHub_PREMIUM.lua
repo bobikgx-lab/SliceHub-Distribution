@@ -6,7 +6,7 @@ getgenv().SliceHub = getgenv().SliceHub or {}
 local BUILD = {
     Tier = "PREMIUM",
     IsPremium = true,
-    Version = "9.8.2.6",
+    Version = "9.8.2.7",
 
     Flags = {
         PremiumCombat = true,
@@ -24,7 +24,7 @@ local TierProfiles = {
     FREE = {
         Combat = {
             TitansPerSwingMin = 2,
-            TitansPerSwingMax = 8,
+            TitansPerSwingMax = 6,
 
             ScanRadius = 450,
             RefreshDelay = 0.16,
@@ -41,7 +41,7 @@ local TierProfiles = {
         },
 
         Blade = {
-            MaxTitansPerSwing = 8,
+            MaxTitansPerSwing = 6,
             MultiBankClearing = false,
         },
 
@@ -777,7 +777,7 @@ do
             clientId = deviceId,
             client = "SliceHub",
             version = tostring(
-                Config.Version or "9.8.2.6"
+                Config.Version or "9.8.2.7"
             ),
         }
 
@@ -10480,7 +10480,7 @@ do
 end
 
 -- Mission-local tier helpers. These read the generated profile directly so
--- Free always exposes/uses 8 and Premium always exposes/uses up to 20.
+-- Free always exposes/uses up to 6 and Premium always exposes/uses up to 20.
 function SliceHubMissionTPSMin()
     local combat = PROFILE and PROFILE.Combat or nil
     local value = combat and tonumber(combat.TitansPerSwingMin) or 2
@@ -10987,9 +10987,12 @@ local Config = {
     -- saved configs/UI references, while these values drive the new raid profiles.
     V9RaidCombatEnabled = true,
     V9BladeQueueMaxTargets = SliceHubMissionTPSMax(),
-    V9BladeBankSize = math.min(6, SliceHubMissionTPSMax()), -- AOT:R accepts about six unique nape registers per Slash
-    V9BladeSecondBankDelay = 0.120,
-    V9BladeCycleCadence = 0.240,
+    V9BladeBankSize = math.min(
+        SliceHubMissionTPSMax(),
+        SliceHubMissionTPSMax() > 6 and 10 or 6
+    ), -- Free sends one exact bank up to 6; Premium uses exact banks up to 10.
+    V9BladeSecondBankDelay = 0.012, -- Premium 20 TPS becomes 10 + 10 with near-zero dead air.
+    V9BladeCycleCadence = 0.120, -- One cooldown after the full selected TPS burst.
     V9BossBladeRegistersPerSlash = 5,
     V9BossBladeCadence = 0.210,
     V9BossAddFill = 6,
@@ -23737,9 +23740,9 @@ function V6ExactBlade.Cycle()
         ) ~= nil
 
         if (not raidEnabled or objectiveGuardianPlan) and #plan > bankSize then
-            -- V9.8.2.6: the server only confirms roughly six unique nape registers
-            -- per Slash. Process every bank instead of the old two-bank split, so a
-            -- Premium value of 20 becomes 6 + 6 + 6 + 2 rather than dying at 6 + 6.
+            -- V9.8.2.7: tier-aware exact banks. Free remains capped at one bank of up
+            -- to 6 targets. Premium sends up to 10 targets per Slash, so a selected
+            -- value of 20 becomes 10 + 10 with only tiny acceptance spacing.
             local bankStart = 1
             while bankStart <= #plan do
                 local bankEnd = math.min(#plan, bankStart + bankSize - 1)
@@ -23754,7 +23757,7 @@ function V6ExactBlade.Cycle()
                 bankStart = bankEnd + 1
 
                 if bankStart <= #plan then
-                    task.wait(math.max(0.05, tonumber(Config.V9BladeSecondBankDelay) or 0.12))
+                    task.wait(math.max(0.005, tonumber(Config.V9BladeSecondBankDelay) or 0.012))
                 end
             end
         else
