@@ -6,7 +6,7 @@ getgenv().SliceHub = getgenv().SliceHub or {}
 local BUILD = {
     Tier = "FREE",
     IsPremium = false,
-    Version = "9.8.2.7",
+    Version = "9.8.2.0",
 
     Flags = {
         PremiumCombat = false,
@@ -24,7 +24,7 @@ local TierProfiles = {
     FREE = {
         Combat = {
             TitansPerSwingMin = 2,
-            TitansPerSwingMax = 6,
+            TitansPerSwingMax = 8,
 
             ScanRadius = 450,
             RefreshDelay = 0.16,
@@ -41,7 +41,7 @@ local TierProfiles = {
         },
 
         Blade = {
-            MaxTitansPerSwing = 6,
+            MaxTitansPerSwing = 8,
             MultiBankClearing = false,
         },
 
@@ -310,7 +310,7 @@ local SLICEHUB_DISCORD_INVITE = "https://discord.gg/Fg3tQG5CSA"
 local SLICEHUB_KEY_API_DEFAULT = "https://YOUR_RAILWAY_DOMAIN/api/validate"
 local SLICEHUB_KEY_GATE_SOURCE = [====[
 
-do
+;(function()
     local Environment =
         type(getgenv) == "function"
         and getgenv()
@@ -719,46 +719,7 @@ do
         return ok and result or tostring(value or "")
     end
 
-    local function resolveDeviceId()
-        local value = ""
-
-        local environment =
-            type(getgenv) == "function"
-            and getgenv()
-            or _G
-
-        local getHwid =
-            environment
-            and environment.gethwid
-            or gethwid
-
-        if type(getHwid) == "function" then
-            pcall(function()
-                value = tostring(getHwid())
-            end)
-        end
-
-        if value == "" then
-            pcall(function()
-                value = tostring(
-                    game:GetService(
-                        "RbxAnalyticsService"
-                    ):GetClientId()
-                )
-            end)
-        end
-
-        if value == "" then
-            -- Stable fallback so teleports between AOT:R places do not
-            -- create false HWID mismatches on limited executors.
-            value = "roblox-user:" .. tostring(Player.UserId)
-        end
-
-        return value
-    end
-
     local function validateAtUrl(url, key)
-        local deviceId = resolveDeviceId()
         local requestPayload = {
             key = key,
             scriptKey = key,
@@ -772,12 +733,9 @@ do
             jobId = tostring(game.JobId or ""),
             requestedTier = RequestedTier,
             buildTier = RequestedTier,
-            deviceId = deviceId,
-            hwid = deviceId,
-            clientId = deviceId,
             client = "SliceHub",
             version = tostring(
-                Config.Version or "9.8.2.7"
+                Config.Version or "9.8.2.0"
             ),
         }
 
@@ -861,8 +819,6 @@ do
                 .. urlEncode(Player.UserId)
                 .. "&requestedTier="
                 .. urlEncode(RequestedTier)
-                .. "&deviceId="
-                .. urlEncode(deviceId)
 
             local okGet, getResponse = pcall(
                 Request,
@@ -930,8 +886,6 @@ do
             .. urlEncode(Player.UserId)
             .. "&requestedTier="
             .. urlEncode(RequestedTier)
-            .. "&deviceId="
-            .. urlEncode(deviceId)
 
         local okHttp, body = pcall(
             game.HttpGet,
@@ -1731,7 +1685,8 @@ do
             )
         end
     end
-end
+end)()
+
 ]====]
 
 local LOBBY_SOURCE = [====[
@@ -1858,8 +1813,6 @@ local Settings = {
 	ToggleKeyName = "RightShift", -- laptop-friendly default; change it in Settings tab
 	AutoLoadConfig = false,
 	AutoLoadConfigName = "",
-	WeaponLoadoutMode = "Auto", -- Auto / Blades / Spears; lobby-only
-	AutoWeaponSwitch = true, -- compatibility mirror for older settings files
 }
 
 local SavedConfigs = {}
@@ -2959,25 +2912,16 @@ local function normalizeSettings(data)
 		autoName = ""
 	end
 
-	local loadoutMode = tostring(data.WeaponLoadoutMode or "")
-	if loadoutMode ~= "Auto" and loadoutMode ~= "Blades" and loadoutMode ~= "Spears" then
-		-- V9.8.2.6 migration: old builds only had a hidden AutoWeaponSwitch boolean.
-		-- Missing/legacy values now default to the visible AUTO loadout mode.
-		loadoutMode = "Auto"
-	end
-
 	return {
 		ToggleKeyName = keyName,
 		AutoLoadConfig = data.AutoLoadConfig == true,
 		AutoLoadConfigName = autoName,
-		WeaponLoadoutMode = loadoutMode,
-		AutoWeaponSwitch = loadoutMode == "Auto",
 	}
 end
 
 local function saveSettings()
 	local doc = {
-		Version = 13,
+		Version = 12,
 		Settings = normalizeSettings(Settings),
 	}
 
@@ -2990,7 +2934,7 @@ local function saveSettings()
 		return true, "Saved to file"
 	end
 
-	Env.LobbyCreatorStatusSettings_v13 = doc
+	Env.LobbyCreatorStatusSettings_v12 = doc
 	return true, "Saved for this session"
 end
 
@@ -3003,8 +2947,6 @@ local function loadSettings()
 			local okDecode, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
 			if okDecode and type(decoded) == "table" then doc = decoded end
 		end
-	elseif type(Env.LobbyCreatorStatusSettings_v13) == "table" then
-		doc = Env.LobbyCreatorStatusSettings_v13
 	elseif type(Env.LobbyCreatorStatusSettings_v12) == "table" then
 		doc = Env.LobbyCreatorStatusSettings_v12
 	end
@@ -3655,92 +3597,6 @@ local countdownLabel = label(right, "Countdown: idle", UDim2.fromOffset(14, 296)
 local createBtn = button(right, "LAUNCH EXACT ENGINE", UDim2.fromOffset(14, 324), UDim2.new(1, -28, 0, 38), Theme.Accent)
 local cancelBtn = button(right, "CANCEL COUNTDOWN", UDim2.fromOffset(14, 370), UDim2.new(1, -28, 0, 32), Theme.Danger)
 
-
--- V9.8.2.6 visible lobby loadout controls. These only operate in the lobby;
--- mission places never attempt to swap Blades and Thunder Spears.
-V9826LobbyLoadoutUI = V9826LobbyLoadoutUI or {Buttons = {}}
-label(right, "Weapon Loadout", UDim2.fromOffset(14, 410), UDim2.new(1, -28, 0, 18), true)
-V9826LobbyLoadoutUI.Status = label(right, "Loading equipped weapon...", UDim2.fromOffset(14, 430), UDim2.new(1, -28, 0, 18), false)
-V9826LobbyLoadoutUI.Status.TextSize = 9
-
-local loadoutHolder = Instance.new("Frame")
-loadoutHolder.Position = UDim2.fromOffset(14, 452)
-loadoutHolder.Size = UDim2.new(1, -28, 0, 36)
-loadoutHolder.BackgroundTransparency = 1
-loadoutHolder.Parent = right
-
-local function makeLoadoutButton(mode, textValue, xScale, widthScale)
-	local loadoutButton = button(
-		loadoutHolder,
-		textValue,
-		UDim2.new(xScale, 0, 0, 0),
-		UDim2.new(widthScale, -4, 1, 0),
-		Theme.Card
-	)
-	V9826LobbyLoadoutUI.Buttons[mode] = loadoutButton
-	loadoutButton.Activated:Connect(function()
-		Settings.WeaponLoadoutMode = mode
-		Settings.AutoWeaponSwitch = mode == "Auto"
-		local okSave, saveMessage = saveSettings()
-		if V9826RefreshLobbyLoadoutUI then pcall(V9826RefreshLobbyLoadoutUI) end
-
-		task.spawn(function()
-			local switcher = V9825LobbyWeaponSwitch
-			if type(switcher) ~= "table" or type(switcher.Prepare) ~= "function" then
-				notify("Loadout saved", mode .. " will be applied before launch.", okSave and "success" or "error")
-				return
-			end
-
-			local switchOk, switchReason, desired = switcher.Prepare(captureConfig(), mode)
-			if V9826RefreshLobbyLoadoutUI then pcall(V9826RefreshLobbyLoadoutUI) end
-			if switchOk then
-				notify("Weapon equipped", tostring(desired or mode) .. " is ready.", "success")
-			else
-				notify("Weapon switch failed", tostring(switchReason or saveMessage or "Unknown error"), "error")
-			end
-		end)
-	end)
-	return loadoutButton
-end
-
-makeLoadoutButton("Auto", "AUTO", 0, 0.26)
-makeLoadoutButton("Blades", "EQUIP BLADES", 0.27, 0.355)
-makeLoadoutButton("Spears", "EQUIP SPEARS", 0.635, 0.365)
-
-V9826RefreshLobbyLoadoutUI = function()
-	local mode = tostring(Settings.WeaponLoadoutMode or "Auto")
-	if mode ~= "Auto" and mode ~= "Blades" and mode ~= "Spears" then mode = "Auto" end
-	Settings.WeaponLoadoutMode = mode
-	Settings.AutoWeaponSwitch = mode == "Auto"
-
-	local detected = "Unknown"
-	local desired = mode
-	if type(V9825LobbyWeaponSwitch) == "table" then
-		if type(V9825LobbyWeaponSwitch.Detect) == "function" then
-			local ok, value = pcall(V9825LobbyWeaponSwitch.Detect)
-			if ok and (value == "Blades" or value == "Spears") then detected = value end
-		end
-		if type(V9825LobbyWeaponSwitch.DesiredFor) == "function" then
-			local ok, value = pcall(V9825LobbyWeaponSwitch.DesiredFor, captureConfig(), mode)
-			if ok and value then desired = value end
-		end
-	end
-
-	if V9826LobbyLoadoutUI.Status then
-		V9826LobbyLoadoutUI.Status.Text = "Mode: " .. string.upper(mode)
-			.. "  •  Equipped: " .. string.upper(detected)
-			.. "  •  Launch: " .. string.upper(tostring(desired or "UNCHANGED"))
-	end
-
-	for buttonMode, loadoutButton in pairs(V9826LobbyLoadoutUI.Buttons or {}) do
-		local selected = buttonMode == mode
-		loadoutButton.BackgroundColor3 = selected and Theme.Accent or Theme.Card
-		loadoutButton.TextColor3 = selected and Theme.Text or Theme.Muted
-	end
-end
-
-V9826RefreshLobbyLoadoutUI()
-
 local mapButtons, objButtons, diffButtons, modButtons = {}, {}, {}, {}
 
 V98WavesUI = V98WavesUI or {
@@ -3835,7 +3691,6 @@ local function refreshPreview()
     local pct = math.clamp(State.Delay / 30, 0, 1)
     fill.Size = UDim2.fromScale(pct, 1)
     knob.Position = UDim2.fromScale(pct, 0.5)
-    if V9826RefreshLobbyLoadoutUI then pcall(V9826RefreshLobbyLoadoutUI) end
 end
 
 local refreshAll
@@ -4370,173 +4225,6 @@ local function clickGuiObject(obj, xOffset, yOffset, direct)
 	activateButtonIfPossible(target)
 	task.wait(0.03)
 	return true
-end
-
--- V9.8.2.5 lobby-only weapon preparation. This never runs in mission places.
--- It synchronizes SliceHub's saved engine route and then uses the native lobby
--- loadout UI when a different equipped weapon is detected.
-V9825LobbyWeaponSwitch = V9825LobbyWeaponSwitch or {
-    Busy = false,
-    LastStatus = "Idle",
-}
-
-function V9825LobbyWeaponSwitch.DesiredFor(config, requestedMode)
-    config = type(config) == "table" and config or State
-    if tostring(config.CreateMode or "Mission") == "Waves" then return nil end
-
-    local mode = tostring(requestedMode or (Settings and Settings.WeaponLoadoutMode) or "Auto")
-    if mode == "Blades" or mode == "Spears" then return mode end
-
-    if tostring(config.CreateMode or "Mission") == "Raid"
-        and tostring(config.RaidChoice or "") == "Shiganshina (Col)" then
-        return "Spears"
-    end
-    return "Blades"
-end
-
-function V9825LobbyWeaponSwitch.SyncSliceHubRoute(desired)
-    if type(readfileFn) ~= "function" or type(writefileFn) ~= "function" then
-        return false, "executor file access unavailable"
-    end
-
-    local document = {}
-    local okRead, raw = pcall(readfileFn, "TitanControlSettings_v101.json")
-    if okRead and type(raw) == "string" and raw ~= "" then
-        local okDecode, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
-        if okDecode and type(decoded) == "table" then document = decoded end
-    end
-
-    document.Toggles = type(document.Toggles) == "table" and document.Toggles or {}
-    document.Spears = type(document.Spears) == "table" and document.Spears or {}
-
-    if desired == "Spears" then
-        document.Toggles.FarmEnabled = false
-        document.Toggles.BladesEnabled = false
-        document.Spears.SupportEnabled = true
-        document.Spears.AutoFireEnabled = true
-    else
-        document.Toggles.FarmEnabled = true
-        document.Toggles.BladesEnabled = true
-        document.Spears.SupportEnabled = false
-    end
-
-    local okEncode, encoded = pcall(function() return HttpService:JSONEncode(document) end)
-    if not okEncode then return false, "settings encode failed" end
-    local okWrite = pcall(writefileFn, "TitanControlSettings_v101.json", encoded)
-    return okWrite, okWrite and "SliceHub route synchronized" or "settings write failed"
-end
-
-function V9825LobbyWeaponSwitch.Detect()
-    -- Live-only detection is mandatory here. The old settings fallback could report
-    -- the desired weapon as equipped before the native lobby actually changed it.
-    if V96LobbyAutoUpgrade and type(V96LobbyAutoUpgrade.DetectWeapon) == "function" then
-        local ok, weapon = pcall(V96LobbyAutoUpgrade.DetectWeapon, true)
-        if ok and (weapon == "Blades" or weapon == "Spears") then return weapon end
-    end
-    return "Unknown"
-end
-
-function V9825LobbyWeaponSwitch.FindWeaponControl(desired)
-    local aliases = desired == "Spears"
-        and {"thunder spears", "thunder spear", "spears"}
-        or {"blades", "blade", "odm blades"}
-    local best, bestScore = nil, -math.huge
-
-    for _, object in ipairs(visibleGameTextObjects()) do
-        local text = cleanText(object.Text)
-        local matched = false
-        local exact = false
-        for _, alias in ipairs(aliases) do
-            local needle = cleanText(alias)
-            if text == needle then matched, exact = true, true break end
-            if string.find(text, needle, 1, true) then matched = true break end
-        end
-
-        if matched then
-            local score = exact and 120 or 40
-            if object:IsA("GuiButton") then score += 30 end
-            local node = object
-            for _ = 1, 8 do
-                if not node or node == playerGui then break end
-                local name = cleanText(node.Name)
-                if string.find(name, "equipment", 1, true)
-                    or string.find(name, "loadout", 1, true)
-                    or string.find(name, "weapon", 1, true)
-                    or string.find(name, "gear", 1, true) then
-                    score += 80
-                end
-                node = node.Parent
-            end
-            if score > bestScore then best, bestScore = object, score end
-        end
-    end
-
-    return best
-end
-
-function V9825LobbyWeaponSwitch.OpenLoadoutMenu()
-    local opener = findTextObject({"equipment", "loadout", "weapons", "gear"}, false, false)
-    if opener then
-        clickGuiObject(opener)
-        task.wait(0.45)
-        return true
-    end
-    return false
-end
-
-function V9825LobbyWeaponSwitch.TryNativeSwitch(desired)
-    local current = V9825LobbyWeaponSwitch.Detect()
-    if current == desired then return true, "already equipped" end
-
-    local control = V9825LobbyWeaponSwitch.FindWeaponControl(desired)
-    if not control then
-        V9825LobbyWeaponSwitch.OpenLoadoutMenu()
-        control = V9825LobbyWeaponSwitch.FindWeaponControl(desired)
-    end
-    if not control then return false, "native loadout control not found" end
-
-    clickGuiObject(control)
-    task.wait(0.25)
-
-    -- Some lobby versions require a second EQUIP/SELECT confirmation.
-    local confirm = findTextObject({"equip", "select", "use"}, true, false)
-    if confirm then
-        local context = cleanText(confirm:GetFullName())
-        if string.find(context, "equip", 1, true)
-            or string.find(context, "loadout", 1, true)
-            or string.find(context, "weapon", 1, true) then
-            clickGuiObject(confirm)
-        end
-    end
-
-    local deadline = os.clock() + 3.0
-    repeat
-        task.wait(0.20)
-        current = V9825LobbyWeaponSwitch.Detect()
-        if current == desired then return true, "equipped " .. desired end
-    until os.clock() >= deadline
-
-    return false, "could not confirm " .. desired .. " loadout"
-end
-
-function V9825LobbyWeaponSwitch.Prepare(config, requestedMode)
-    local desired = V9825LobbyWeaponSwitch.DesiredFor(config, requestedMode)
-    if not desired then return true, "Waves ignored", nil end
-    if V9825LobbyWeaponSwitch.Busy then return false, "weapon switch already running", desired end
-
-    V9825LobbyWeaponSwitch.Busy = true
-    V9825LobbyWeaponSwitch.LastStatus = "Preparing " .. desired
-    local ok, reason = V9825LobbyWeaponSwitch.TryNativeSwitch(desired)
-    if ok then
-        local synced, syncReason = V9825LobbyWeaponSwitch.SyncSliceHubRoute(desired)
-        if not synced then
-            reason = tostring(reason) .. " • " .. tostring(syncReason)
-        end
-    end
-    V9825LobbyWeaponSwitch.Busy = false
-    V9825LobbyWeaponSwitch.LastStatus = ok and ("Ready • " .. desired) or ("Failed • " .. tostring(reason))
-    if V9826RefreshLobbyLoadoutUI then pcall(V9826RefreshLobbyLoadoutUI) end
-    return ok, reason, desired
 end
 
 local function setOwnMenuVisible(open)
@@ -5493,35 +5181,22 @@ local function runMissionFlow()
 		return
 	end
 
-    if State.CreateMode == "Raid"
-        and type(SliceHubRaidChoiceAllowed) == "function"
-        and not SliceHubRaidChoiceAllowed(State.RaidChoice) then
-        warn("[SliceHub Free] " .. (type(SliceHubRaidLockedReason) == "function" and SliceHubRaidLockedReason(State.RaidChoice) or "This raid is unsupported in Free."))
-        setOwnMenuVisible(true)
-        refreshPreview()
-        return
-    end
-
-    if State.CreateMode ~= "Waves" then
-        local loadoutMode = tostring(Settings.WeaponLoadoutMode or "Auto")
-        local switchOk, switchReason, desired = V9825LobbyWeaponSwitch.Prepare(captureConfig(), loadoutMode)
-        if not switchOk then
-            notify("Weapon switch failed", tostring(desired or "Weapon") .. " • " .. tostring(switchReason), "error")
+    if State.CreateMode == "Raid" then
+        if type(SliceHubRaidChoiceAllowed) == "function" and not SliceHubRaidChoiceAllowed(State.RaidChoice) then
+            warn("[SliceHub Free] " .. (type(SliceHubRaidLockedReason) == "function" and SliceHubRaidLockedReason(State.RaidChoice) or "This raid is unsupported in Free."))
             setOwnMenuVisible(true)
             refreshPreview()
             return
         end
-        notify("Weapon ready", tostring(desired) .. " selected before launch.", "success")
-    end
-
-    if State.CreateMode == "Raid" and State.RaidChoice == "Shiganshina (Col)" then
-        notify("Colossal Spears-only", type(SliceHubColossalModeText) == "function" and SliceHubColossalModeText() or "COLOSSAL • SPEARS ONLY", "info")
-        local ready, reason = V95LobbyWeaponPolicy.ColossalReady()
-        if not ready then
-            notify("Colossal is Spears-only", tostring(reason) .. ". Blades are unsupported for Colossal in V9.5.", "error")
-            setOwnMenuVisible(true)
-            refreshPreview()
-            return
+        if State.RaidChoice == "Shiganshina (Col)" then
+            notify("Colossal Spears-only", type(SliceHubColossalModeText) == "function" and SliceHubColossalModeText() or "COLOSSAL • SPEARS ONLY", "info")
+            local ready, reason = V95LobbyWeaponPolicy.ColossalReady()
+            if not ready then
+                notify("Colossal is Spears-only", tostring(reason) .. ". Blades are unsupported for Colossal in V9.5.", "error")
+                setOwnMenuVisible(true)
+                refreshPreview()
+                return
+            end
         end
     end
 
@@ -6255,7 +5930,7 @@ function V96LobbyAutoUpgrade.Match(text, aliases)
     return false
 end
 
-function V96LobbyAutoUpgrade.DetectWeapon(liveOnly)
+function V96LobbyAutoUpgrade.DetectWeapon()
     local spearScore, bladeScore = 0, 0
 
     local function scoreText(raw, weight)
@@ -6315,10 +5990,6 @@ function V96LobbyAutoUpgrade.DetectWeapon(liveOnly)
     end
     if bladeScore >= spearScore + 3 and bladeScore >= 6 then
         return "Blades", spearScore, bladeScore
-    end
-
-    if liveOnly == true then
-        return "Unknown", spearScore, bladeScore
     end
 
     -- Mission settings are only a last-resort hint; live equipment evidence above wins.
@@ -8946,7 +8617,7 @@ local storageInfo = label(
 	settingsPanel,
 	"",
 	UDim2.fromOffset(14, 202),
-	UDim2.new(1, -28, 0, 112),
+	UDim2.new(1, -28, 0, 90),
 	false
 )
 storageInfo.TextSize = 10
@@ -8966,7 +8637,6 @@ V94LobbyRefresh.Settings = function()
 	storageInfo.Text = "Storage: " .. ((readfileFn and writefileFn) and "File" or "Session only")
 		.. "\nSettings file: " .. SettingsFileName
 		.. "\nAuto-load config: " .. autoText
-		.. "\nWeapon loadout is controlled visibly on the Create tab."
 		.. "\nTip: RightShift is usually safer than END on laptops."
 end
 
@@ -9097,6 +8767,7 @@ task.spawn(function()
 		if CurrentMode ~= LastMode then
 			LastMode = CurrentMode
 			refreshPreview()
+			notify("Mode changed", "Detected: " .. CurrentMode, "info")
 		end
 		if ActiveTab == "Auto Upgrade" and V94LobbyRefresh.AutoUpgrade then V94LobbyRefresh.AutoUpgrade() end
 	end
@@ -10480,7 +10151,7 @@ do
 end
 
 -- Mission-local tier helpers. These read the generated profile directly so
--- Free always exposes/uses up to 6 and Premium always exposes/uses up to 20.
+-- Free always exposes/uses 8 and Premium always exposes/uses up to 20.
 function SliceHubMissionTPSMin()
     local combat = PROFILE and PROFILE.Combat or nil
     local value = combat and tonumber(combat.TitansPerSwingMin) or 2
@@ -10937,7 +10608,7 @@ local Config = {
     BladeV3Enabled = true,
     BladeV3CleanupHealthRatio = 0.985,
     BladeV3CleanupScanLimit = 40,
-    BladeV3CleanupMaxTargets = SliceHubMissionTPSMax(),
+    BladeV3CleanupMaxTargets = 8,
     BladeV3SurvivorPartAttempts = 1,
     BladeV3SurvivorMaxRotations = 6,
     BladeV3SurvivorBlacklistTime = 0.80,
@@ -10976,7 +10647,7 @@ local Config = {
     -- Keep these values isolated so the legacy physical wave engine remains available
     -- as a fallback without touching raid routing or Spear ownership.
     V6ExactBladeEnabled = true,
-    V6ExactBladeMaxTargets = SliceHubMissionTPSMax(),
+    V6ExactBladeMaxTargets = 10,
     V6ExactBladeCadence = 0.240,
     V6ExactBladeNoTargetDelay = 0.050,
     V6ExactBladeRegisterMin = 625,
@@ -10987,12 +10658,9 @@ local Config = {
     -- saved configs/UI references, while these values drive the new raid profiles.
     V9RaidCombatEnabled = true,
     V9BladeQueueMaxTargets = SliceHubMissionTPSMax(),
-    V9BladeBankSize = math.min(
-        SliceHubMissionTPSMax(),
-        SliceHubMissionTPSMax() > 6 and 10 or 6
-    ), -- Free sends one exact bank up to 6; Premium uses exact banks up to 10.
-    V9BladeSecondBankDelay = 0.012, -- Premium 20 TPS becomes 10 + 10 with near-zero dead air.
-    V9BladeCycleCadence = 0.120, -- One cooldown after the full selected TPS burst.
+    V9BladeBankSize = math.min(10, SliceHubMissionTPSMax()),
+    V9BladeSecondBankDelay = 0.120,
+    V9BladeCycleCadence = 0.240,
     V9BossBladeRegistersPerSlash = 5,
     V9BossBladeCadence = 0.210,
     V9BossAddFill = 6,
@@ -11255,9 +10923,9 @@ function applyObjectiveRuntimeTuning(active)
 end
 
 function objectiveModeActiveNow()
-	if not State or not updateObjectiveBrain then return false end
+	if not State or not State.ObjectiveBrainEnabled or not updateObjectiveBrain then return false end
 	local ok, data = pcall(updateObjectiveBrain, false)
-	return ok and type(data) == "table" and (State.TargetPriority == "Objective" or (State.TargetPriority == "Balanced" and data.Mode == "Objective"))
+	return ok and type(data) == "table" and (State.CombatPreset == "Objective" or data.Mode == "Objective")
 end
 
 -- v116 adaptive combat tuning. Kept global on purpose to avoid another top-level local-register spike.
@@ -11355,27 +11023,24 @@ local State = {
         or false,
 	AutoRefillEnabled = PersistentSettings:GetBoolean("Toggles", "AutoRefillEnabled", true), -- v111: blades focus default ON
 	AutoSkipCutsceneEnabled = SliceHubClampAutoSkipCutscene(PersistentSettings:GetBoolean("Toggles", "AutoSkipCutsceneEnabled", false)),
-	-- Anti-Grab Escape and Colossal Hitbox were removed from SliceHub V9.8.2.5.
+	AutoEscapeEnabled = PersistentSettings:GetBoolean("Toggles", "AutoEscapeEnabled", true),
+	ExpandHitboxesEnabled = PersistentSettings:GetBoolean("Toggles", "ExpandHitboxesEnabled", true),
 	PerformanceModeEnabled = PersistentSettings:GetBoolean("Toggles", "PerformanceModeEnabled", false),
 	DisableEffectsEnabled = PersistentSettings:GetBoolean("Toggles", "DisableEffectsEnabled", false),
 	EcoLoopModeEnabled = PersistentSettings:GetBoolean("Toggles", "EcoLoopModeEnabled", false),
 	MapPropsHiddenEnabled = PersistentSettings:GetBoolean("Toggles", "MapPropsHiddenEnabled", false),
 	RemoveInjuryKillFlashEnabled = PersistentSettings:GetBoolean("Toggles", "RemoveInjuryKillFlashEnabled", false),
 	RemoveDamageTextEnabled = PersistentSettings:GetBoolean("Toggles", "RemoveDamageTextEnabled", false),
-    OptimizationPreset = PersistentSettings:GetString("Toggles", "OptimizationPreset", "Default"),
-    CleanupDeadTitansEnabled = PersistentSettings:GetBoolean("Toggles", "CleanupDeadTitansEnabled", false),
-    RemoveFogEnabled = PersistentSettings:GetBoolean("Toggles", "RemoveFogEnabled", false),
-    DisablePostProcessingEnabled = PersistentSettings:GetBoolean("Toggles", "DisablePostProcessingEnabled", false),
-    Disable3DRenderingEnabled = PersistentSettings:GetBoolean("Toggles", "Disable3DRenderingEnabled", false),
-    FPSCap = math.clamp(math.floor((PersistentSettings:GetNumber("Toggles", "FPSCap", 60, 30, 999) or 60) + 0.5), 30, 999),
 	AutoRetryEnabled = PersistentSettings:GetBoolean("Automation", "AutoRetryEnabled", false),
 	AutoMissionLimit = math.clamp(math.floor((PersistentSettings:GetNumber("Automation", "MissionLimit", 0, 0, 10) or 0) + 0.5), 0, 10),
 	AutoMissionCount = math.clamp(math.floor((PersistentSettings:GetNumber("Automation", "MissionCount", 0, 0, 10) or 0) + 0.5), 0, 10),
-	TargetPriority = (function()
-		local value = PersistentSettings:GetString("Combat", "TargetPriority", "Balanced")
-		local allowed = {Balanced = true, Nearest = true, Objective = true, Boss = true, Abnormal = true}
-		return allowed[value] and value or "Balanced"
-	end)(),
+	CombatPreset = PersistentSettings:GetString("Combat", "PresetName", "Sonic"),
+	ObjectiveBrainEnabled = PersistentSettings:GetBoolean("Combat", "ObjectiveBrainEnabled", true),
+	AbilitySlot1Enabled = PersistentSettings:GetBoolean("Combat", "AbilitySlot1Enabled", true),
+	AbilitySlot2Enabled = PersistentSettings:GetBoolean("Combat", "AbilitySlot2Enabled", true),
+	AbilitySlot3Enabled = PersistentSettings:GetBoolean("Combat", "AbilitySlot3Enabled", true),
+	AbilitySlot4Enabled = PersistentSettings:GetBoolean("Combat", "AbilitySlot4Enabled", true),
+	AbilitySlot5Enabled = PersistentSettings:GetBoolean("Combat", "AbilitySlot5Enabled", true),
 	WeaponMode = "Auto",
 	SpearSupportEnabled = PersistentSettings:GetBoolean("Spears", "SupportEnabled", false),
 	SpearAutoFireEnabled = PersistentSettings:GetBoolean("Spears", "AutoFireEnabled", true),
@@ -11415,9 +11080,9 @@ end
 
 -- v116 scoped overrides placed after local State so these functions see the real State table.
 function objectiveModeActiveNow()
-	if not State or not updateObjectiveBrain then return false end
+	if not State or not State.ObjectiveBrainEnabled or not updateObjectiveBrain then return false end
 	local ok, data = pcall(updateObjectiveBrain, false)
-	return ok and type(data) == "table" and (State.TargetPriority == "Objective" or (State.TargetPriority == "Balanced" and data.Mode == "Objective"))
+	return ok and type(data) == "table" and (State.CombatPreset == "Objective" or data.Mode == "Objective")
 end
 function titanControlRipperAvailableNow()
 	if not State or State.TitanRipperEnabled ~= true then return false end
@@ -11498,18 +11163,16 @@ local function capturePersistentSettings()
 			TitanRipperEnabled = State.TitanRipperEnabled == true, -- legacy compatibility
 			AutoRefillEnabled = State.AutoRefillEnabled == true,
 			AutoSkipCutsceneEnabled = SliceHubClampAutoSkipCutscene(State.AutoSkipCutsceneEnabled),
+			AutoEscapeEnabled = State.AutoEscapeEnabled == true,
+			ExpandHitboxesEnabled = State.ExpandHitboxesEnabled == true,
 			PerformanceModeEnabled = State.PerformanceModeEnabled == true,
 			DisableEffectsEnabled = State.DisableEffectsEnabled == true,
 			EcoLoopModeEnabled = State.EcoLoopModeEnabled == true,
 			MapPropsHiddenEnabled = State.MapPropsHiddenEnabled == true,
-            RemoveInjuryKillFlashEnabled = State.RemoveInjuryKillFlashEnabled == true,
-            RemoveDamageTextEnabled = State.RemoveDamageTextEnabled == true,
-            OptimizationPreset = tostring(State.OptimizationPreset or "Default"),
-            CleanupDeadTitansEnabled = State.CleanupDeadTitansEnabled == true,
-            RemoveFogEnabled = State.RemoveFogEnabled == true,
-            DisablePostProcessingEnabled = State.DisablePostProcessingEnabled == true,
-            Disable3DRenderingEnabled = State.Disable3DRenderingEnabled == true,
-            FPSCap = tonumber(State.FPSCap) or 60,
+		RemoveInjuryKillFlashEnabled = State.RemoveInjuryKillFlashEnabled == true,
+		RemoveDamageTextEnabled = State.RemoveDamageTextEnabled == true,
+			RemoveInjuryKillFlashEnabled = State.RemoveInjuryKillFlashEnabled == true,
+			RemoveDamageTextEnabled = State.RemoveDamageTextEnabled == true,
 		},
         Buffs = {
             AutoUseEnabled = State.AutoUseBuffsEnabled == true,
@@ -11543,7 +11206,14 @@ local function capturePersistentSettings()
 			MissionCount = math.clamp(math.floor((tonumber(State.AutoMissionCount) or 0) + 0.5), 0, 10),
 		},
 		Combat = {
-			TargetPriority = tostring(State.TargetPriority or "Balanced"),
+			PresetName = tostring(State.CombatPreset or "Sonic"),
+			ObjectiveBrainEnabled = State.ObjectiveBrainEnabled == true,
+			AbilitySlot1Enabled = State.AbilitySlot1Enabled ~= false,
+			AbilitySlot2Enabled = State.AbilitySlot2Enabled ~= false,
+			AbilitySlot3Enabled = State.AbilitySlot3Enabled ~= false,
+			AbilitySlot4Enabled = State.AbilitySlot4Enabled ~= false,
+			AbilitySlot5Enabled = State.AbilitySlot5Enabled ~= false,
+			WeaponMode = tostring(State.WeaponMode or "Blades"),
 		},
 		Spears = {
 			SupportEnabled = State.SpearSupportEnabled == true,
@@ -11831,7 +11501,8 @@ local statusDetailLabel
 local autoMissionStatusLabel
 local lastRunStatusLabel
 local objectiveBrainStatusLabel
-local refreshTargetPriorityUI
+local combatPresetLabel
+local applyCombatPreset
 local refreshAutoMissionStatus = function() end
 triggerAutoRetryNow = function() end -- v111: global forward decl avoids Luau 200-local register blowup
 local getObjectiveMode
@@ -14998,8 +14669,7 @@ end
 		objectiveState.LastScan = now
 		objectiveState.Text = readObjectiveText()
 		objectiveState.Mode = detectModeFromText(objectiveState.Text)
-		local priority = tostring(State.TargetPriority or "Balanced")
-		local objectiveActive = priority == "Objective" or (priority == "Balanced" and objectiveState.Mode == "Objective")
+		local objectiveActive = State.ObjectiveBrainEnabled and (State.CombatPreset == "Objective" or objectiveState.Mode == "Objective")
 		if objectiveActive then findObjectivePosition() end
 		if applyObjectiveRuntimeTuning then pcall(applyObjectiveRuntimeTuning, objectiveActive) end
 		if objectiveBrainStatusLabel then
@@ -15016,17 +14686,50 @@ end
 	getObjectiveTargetScore = function(entry)
 		if not entry then return math.huge end
 		local score = tonumber(entry.DistanceSquared) or math.huge
-		local state = updateObjectiveBrain(false)
-		local priority = tostring(State.TargetPriority or "Balanced")
-		local useObjective = priority == "Objective" or (priority == "Balanced" and state.Mode == "Objective")
-		if useObjective and state.Position and entry.Part then
-			local distanceToObjective = (entry.Part.Position - state.Position).Magnitude
-			local distanceToPlayer = math.sqrt(tonumber(entry.DistanceSquared) or 0)
-			score = distanceToObjective * distanceToObjective + distanceToPlayer * 0.45
+		if State.ObjectiveBrainEnabled then
+			local state = updateObjectiveBrain(false)
+			local useObjective = State.CombatPreset == "Objective" or state.Mode == "Objective"
+			if useObjective and state.Position and entry.Part then
+				local distanceToObjective = (entry.Part.Position - state.Position).Magnitude
+				local distanceToPlayer = math.sqrt(tonumber(entry.DistanceSquared) or 0)
+				score = distanceToObjective * distanceToObjective + distanceToPlayer * 0.45
+			end
 		end
 		return score
 	end
 
+	local function setToggle(control, value)
+		if control and control.Set then pcall(function() control:Set(value, true) end) end
+	end
+
+	applyCombatPreset = function(name, silent)
+		name = tostring(name or "Sonic")
+		if name ~= "Sonic" and name ~= "Safe" and name ~= "Objective" then name = "Sonic" end
+		local maxTitansPerSwing = SliceHubMissionTPSMax()
+		local savedTitansPerHit = SliceHubMissionClampTPS(Config.TitansPerHit, maxTitansPerSwing)
+		State.CombatPreset = name
+		if name == "Sonic" then
+			Config.TitansPerHit = maxTitansPerSwing; Config.SkyHeight = 300; Config.SpeedPulseDistance = 20; Config.TargetStallTimeout = 0.75
+		elseif name == "Safe" then
+			Config.TitansPerHit = maxTitansPerSwing; Config.SkyHeight = 260; Config.SpeedPulseDistance = 18; Config.TargetStallTimeout = 0.90
+		else
+			Config.TitansPerHit = maxTitansPerSwing; Config.SkyHeight = 230; Config.SpeedPulseDistance = 20; Config.TargetStallTimeout = 0.75
+		end
+		-- Boot-time silent restore should apply the saved preset behavior without
+		-- overwriting the user's saved Titans Per Swing value.
+		if silent == true then
+			Config.TitansPerHit = savedTitansPerHit
+		end
+		State.TitanRipperEnabled = true
+		State.ObjectiveBrainEnabled = true
+		lastBladeBurstCount = math.min(lastBladeBurstCount or 1, Config.TitansPerHit)
+		setToggle(Controls and Controls.TitanRipper, State.TitanRipperEnabled)
+		if Controls and Controls.TitansPerHit and Controls.TitansPerHit.Set then pcall(function() Controls.TitansPerHit:Set(Config.TitansPerHit, true) end) end
+		if combatPresetLabel then combatPresetLabel.Text = "Preset: " .. name end
+		updateObjectiveBrain(true)
+		saveSettingsIfReady()
+		if not silent then showNotification("Combat preset", name .. " preset applied.", "success") end
+	end
 end)()
 
 ---------------------------------------------------------------------
@@ -15346,7 +15049,32 @@ end)()
 -- COLOSSAL HITBOX EXPANDER (1000x1000x1000 STUD OVERRIDE)
 ---------------------------------------------------------------------
 
--- Colossal Hitbox was removed in V9.8.2.5. No background expander is started.
+local function processHitboxExpansion()
+	if not State.ExpandHitboxesEnabled then return end
+	local titansFolder = Workspace:FindFirstChild(Config.TitansFolderName)
+	if not titansFolder then return end
+
+	for _, titan in ipairs(titansFolder:GetChildren()) do
+		local nape = titan:FindFirstChild("Nape", true)
+		if nape and nape:IsA("BasePart") then
+			if nape.Size ~= Config.HitboxSize then
+				nape.Size = Config.HitboxSize
+			end
+			nape.CanCollide = false
+			nape.Transparency = Config.HitboxTransparency
+			nape.CastShadow = false
+			nape.Massless = true
+			nape.Color = Color3.fromRGB(255, 255, 255)
+		end
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(Config.HitboxRefreshDelay)
+		pcall(processHitboxExpansion)
+	end
+end)
 
 ---------------------------------------------------------------------
 -- TARGET ACQUISITION & SKY-LOCK NAVIGATION
@@ -15834,128 +15562,64 @@ function V4RaidDirector.ObjectiveText()
 end
 
 
-function V4RaidDirector.ActiveRaidBoss(markerName)
-    local titansFolder = Workspace:FindFirstChild(Config.TitansFolderName)
-    if not titansFolder then return nil end
-
-    -- Direct active boss model under the live Titans folder.
-    local direct = titansFolder:FindFirstChild(markerName, true)
-    if direct then
-        local model = direct:IsA("Model") and direct or direct:FindFirstAncestorOfClass("Model")
-        while model and model.Parent ~= titansFolder do model = model.Parent end
-        if model and model.Parent == titansFolder and isTitanAlive(model) and getTitanTargetPart(model) then
-            return model
-        end
-    end
-
-    -- Some raids expose a workspace objective wrapper whose ObjectValue points at
-    -- the real live boss. The wrapper by itself is never sufficient evidence.
-    local marker = Workspace:FindFirstChild(markerName, true)
-    if marker then
-        for _, object in ipairs(marker:GetDescendants()) do
-            if object:IsA("ObjectValue") and object.Value and object.Value:IsDescendantOf(titansFolder) then
-                local model = object.Value
-                while model and model.Parent ~= titansFolder do model = model.Parent end
-                if model and model.Parent == titansFolder and isTitanAlive(model) and getTitanTargetPart(model) then
-                    return model
-                end
-            end
-        end
-    end
-
-    return nil
-end
-
-function V4RaidDirector.ClearlyNormalMission()
-    local taskText = ""
-    pcall(function()
-        taskText = V4RaidDirector.Lower(
-            (V3MissionIdentity and V3MissionIdentity.CombinedTasksLower and V3MissionIdentity.CombinedTasksLower() or "")
-            .. " | " .. tostring(V4RaidDirector.VisibleObjectiveText() or "")
-        )
-    end)
-
-    local generic = {
-        "slay titans", "most kills", "escape grabs", "heal injuries",
-        "avoid damage", "one shot titans", "blind titans", "no refills",
-    }
-    local raidSpecific = {
-        "armored titan", "attack titan", "female titan", "colossal",
-        "annie", "reiner", "bertholdt", "bertolt", "cannon",
-        "defend eren", "wake eren", "boulder", "boat", "ship", "raid",
-    }
-
-    local sawGeneric = false
-    for _, phrase in ipairs(generic) do
-        if string.find(taskText, phrase, 1, true) then sawGeneric = true break end
-    end
-    if not sawGeneric then return false end
-
-    for _, phrase in ipairs(raidSpecific) do
-        if string.find(taskText, phrase, 1, true) then return false end
-    end
-
-    return true
-end
-
 function V4RaidDirector.DetectRaidName()
-    -- V9.8.2.6: a clearly normal objective board wins over stale raid state.
-    -- This must run before workspace Raid/RaidName attributes because AOT:R can
-    -- leave those attributes behind after returning from an Attack Raid.
-    if V4RaidDirector.ClearlyNormalMission() then return "Unknown" end
+    -- V5.7.7: Loading Docks Stall is a mission even though it spawns Colossal Titans.
+    -- Stale launcher metadata from a previous raid must not turn it into Colossal Raid.
+    local liveMap = nil
+    local liveSpecial = nil
+    pcall(function()
+        liveMap = V3MissionIdentity and V3MissionIdentity.ExactWorkspaceMap and V3MissionIdentity.ExactWorkspaceMap() or nil
+        liveSpecial = V3MissionIdentity and V3MissionIdentity.InferSpecialMissionTypeFromTasks and V3MissionIdentity.InferSpecialMissionTypeFromTasks() or nil
+    end)
+    if liveMap == "Loading Docks" and liveSpecial == "Stall"
+        and not Workspace:FindFirstChild("Colossal_Boss", true) then
+        return "Unknown"
+    end
 
-    -- Explicit raid attributes and live boss references are authoritative only
-    -- after the normal-mission rejection above.
-    local raidAttribute = V4RaidDirector.Lower(
+    local mapAttribute = Workspace:GetAttribute("Map")
+    local raidAttribute =
         Workspace:GetAttribute("Raid")
         or Workspace:GetAttribute("RaidName")
-        or ""
-    )
+        or Workspace:GetAttribute("Objective")
 
-    if raidAttribute ~= "" then
-        if string.find(raidAttribute, "armored", 1, true) then return "Armored Raid" end
-        if string.find(raidAttribute, "female", 1, true) then return "Female Raid" end
-        if string.find(raidAttribute, "colossal", 1, true) then return "Colossal Raid" end
-        if string.find(raidAttribute, "attack titan", 1, true)
-            or string.find(raidAttribute, "attack raid", 1, true) then
-            return "Attack Raid"
-        end
-    end
-
-    if V4RaidDirector.ActiveRaidBoss("Armored_Boss") then return "Armored Raid" end
-    if V4RaidDirector.ActiveRaidBoss("Female_Boss") then return "Female Raid" end
-    if V4RaidDirector.ActiveRaidBoss("Colossal_Boss") then return "Colossal Raid" end
-    if V4RaidDirector.ActiveRaidBoss("Attack_Boss") then return "Attack Raid" end
-
-    local taskText = V4RaidDirector.ObjectiveText()
-    local freshRaidChoice = ""
-    local metadataAge = math.huge
+    local selectedObjective = ""
     pcall(function()
-        if not MissionObjectiveHistory.SelectedCreateMode then readLastMissionInfoForWebhook() end
-        local updatedAt = tonumber(MissionObjectiveHistory.MetadataUpdatedAt) or 0
-        metadataAge = updatedAt > 0 and math.max(0, os.time() - updatedAt) or math.huge
-        if tostring(MissionObjectiveHistory.SelectedCreateMode or "") == "Raid" and metadataAge <= 300 then
-            freshRaidChoice = tostring(MissionObjectiveHistory.SelectedRaidChoice or "")
-        end
+        selectedObjective = tostring(MissionObjectiveHistory.SelectedObjective or "")
     end)
 
-    -- P1 raid phases may not have spawned the boss yet. Require fresh Raid launch
-    -- metadata plus matching live raid text; never trust the saved selection alone.
-    if freshRaidChoice == "Shiganshina (Arm)"
-        and (string.find(taskText, "boat", 1, true) or string.find(taskText, "ship", 1, true) or string.find(taskText, "armored", 1, true)) then
+    local combined =
+        V4RaidDirector.Lower(mapAttribute)
+        .. " "
+        .. V4RaidDirector.Lower(raidAttribute)
+        .. " "
+        .. V4RaidDirector.Lower(selectedObjective)
+
+    if string.find(combined, "armored", 1, true) then
         return "Armored Raid"
     end
-    if freshRaidChoice == "Trost (Att)"
-        and (string.find(taskText, "defend eren", 1, true) or string.find(taskText, "boulder", 1, true) or string.find(taskText, "attack titan", 1, true)) then
-        return "Attack Raid"
-    end
-    if freshRaidChoice == "Stohess (Female)"
-        and (string.find(taskText, "annie", 1, true) or string.find(taskText, "female titan", 1, true)) then
+    if string.find(combined, "female", 1, true) then
         return "Female Raid"
     end
-    if freshRaidChoice == "Shiganshina (Col)"
-        and (string.find(taskText, "cannon", 1, true) or string.find(taskText, "colossal", 1, true)) then
+    if string.find(combined, "colossal", 1, true) then
         return "Colossal Raid"
+    end
+    if string.find(combined, "attack titan", 1, true)
+        or string.find(combined, "attack raid", 1, true) then
+        return "Attack Raid"
+    end
+
+    -- Structural fallbacks.
+    if Workspace:FindFirstChild("Armored_Boss", true) then
+        return "Armored Raid"
+    end
+    if Workspace:FindFirstChild("Female_Boss", true) then
+        return "Female Raid"
+    end
+    if Workspace:FindFirstChild("Colossal_Boss", true) then
+        return "Colossal Raid"
+    end
+    if Workspace:FindFirstChild("Attack_Boss", true) then
+        return "Attack Raid"
     end
 
     return "Unknown"
@@ -18959,10 +18623,15 @@ function V4RaidDirector.Refresh()
         V4RaidDirector.RawBossPart = nil
         V4RaidDirector.WeakPointText = "Premium only"
         V4RaidDirector.Status = tostring(V4RaidDirector.RaidName) .. " | Premium only in Free build"
-        if V4RaidDirector.LastLockedWarning ~= V4RaidDirector.RaidName then
-            V4RaidDirector.LastLockedWarning = V4RaidDirector.RaidName
-            warn("[SliceHub Free] " .. tostring(V4RaidDirector.RaidName) .. " automation is unsupported in the Free version.")
+        if State then
+            State.FarmEnabled = false
+            State.BladesEnabled = false
+            State.SpearSupportEnabled = false
+            State.SpearAutoFireEnabled = false
+            State.AutoSkipCutsceneEnabled = false
+            State.RaidAutoSkipEnabled = false
         end
+        warn("[SliceHub Free] " .. tostring(V4RaidDirector.RaidName) .. " automation is unsupported in the Free version.")
         return
     end
 
@@ -19412,41 +19081,6 @@ V52KillingEngine = V52KillingEngine or {
     Status = "Learning targets",
 }
 
-function V9825NormalizeTargetPriority(value)
-    value = tostring(value or "Balanced")
-    local allowed = {Balanced = true, Nearest = true, Objective = true, Boss = true, Abnormal = true}
-    return allowed[value] and value or "Balanced"
-end
-
-function V9825TitanDescriptor(titan)
-    if not titan then return "" end
-    local values = {tostring(titan.Name or "")}
-    for _, attribute in ipairs({"Type", "TitanType", "Variant", "Class", "Boss", "Abnormal", "Aberrant"}) do
-        local ok, value = pcall(function() return titan:GetAttribute(attribute) end)
-        if ok and value ~= nil then values[#values + 1] = tostring(value) end
-    end
-    return string.lower(table.concat(values, " "))
-end
-
-function V9825TitanLooksBoss(titan)
-    if not titan then return false end
-    if V4RaidDirector and V4RaidDirector.BossTitan == titan then return true end
-    local text = V9825TitanDescriptor(titan)
-    return string.find(text, "boss", 1, true) ~= nil
-        or string.find(text, "colossal", 1, true) ~= nil
-        or string.find(text, "armored", 1, true) ~= nil
-        or string.find(text, "female", 1, true) ~= nil
-        or string.find(text, "attack titan", 1, true) ~= nil
-end
-
-function V9825TitanLooksAbnormal(titan)
-    local text = V9825TitanDescriptor(titan)
-    return string.find(text, "abnormal", 1, true) ~= nil
-        or string.find(text, "aberrant", 1, true) ~= nil
-        or string.find(text, "crawler", 1, true) ~= nil
-        or string.find(text, "jumper", 1, true) ~= nil
-end
-
 function V52KillingEngine.ComputeDensity(entries, entry)
     if not entry or not entry.Part then return 0 end
     local radius = tonumber(V52KillingEngine.ClusterRadius) or 95
@@ -19472,28 +19106,15 @@ function V52KillingEngine.ScoreEntry(entry, entries)
         return entry.Titan == hardBoss and -1e15 or 1e15
     end
 
-    local mode = V9825NormalizeTargetPriority(State and State.TargetPriority)
-    local distanceSquared = tonumber(entry.DistanceSquared) or math.huge
-    local score = distanceSquared
-
-    if mode == "Balanced" or mode == "Objective" then
-        score = getObjectiveTargetScore and getObjectiveTargetScore(entry) or distanceSquared
-    elseif mode == "Boss" and V9825TitanLooksBoss(entry.Titan) then
-        score -= 500000000000
-    elseif mode == "Abnormal" and V9825TitanLooksAbnormal(entry.Titan) then
-        score -= 500000000000
-    end
+    local score = getObjectiveTargetScore and getObjectiveTargetScore(entry)
+        or tonumber(entry.DistanceSquared)
+        or math.huge
 
     local density = V52KillingEngine.ComputeDensity(entries, entry)
     entry.ClusterDensity = density
 
-    -- Balanced preserves the proven dense-pack route. Explicit priority modes
-    -- follow the requested order directly instead of allowing cluster density
-    -- to pull ordinary Titans ahead of the selected class.
-    if mode == "Balanced" then
-        score -= math.max(0, density - 1) * 2300
-        score += math.sqrt(math.max(0, distanceSquared)) * 4
-    end
+    -- Lower score wins. Dense local groups are preferred because one blade wave can\n    -- physically cover them instead of averaging aim across scattered Titans.\n    score -= math.max(0, density - 1) * 2300
+    score += math.sqrt(math.max(0, tonumber(entry.DistanceSquared) or 0)) * 4
 
     if V4RaidDirector and V4RaidDirector.BossPriorityScore then
         score += V4RaidDirector.BossPriorityScore(entry.Titan)
@@ -19510,23 +19131,6 @@ function V52KillingEngine.BuildBladeWave(limit, current)
     limit = math.max(1, math.floor(tonumber(limit) or 1))
     local candidates = findClosestTitans(math.min(40, math.max(limit * 3, limit + 4)))
     if #candidates == 0 then return {} end
-
-    local priorityMode = V9825NormalizeTargetPriority(State and State.TargetPriority)
-    if priorityMode ~= "Balanced" then
-        local direct, seen = {}, {}
-        for _, entry in ipairs(candidates) do
-            if #direct >= limit then break end
-            if entry.Titan and not seen[entry.Titan] and isTitanAlive(entry.Titan) then
-                seen[entry.Titan] = true
-                direct[#direct + 1] = entry.Titan
-            end
-        end
-        V52KillingEngine.LastSeed = direct[1]
-        V52KillingEngine.LastSeedDensity = 0
-        V52KillingEngine.LastWaveSize = #direct
-        V52KillingEngine.Status = priorityMode .. " priority • wave " .. tostring(#direct)
-        return direct
-    end
 
     local seed = nil
     if current and isTitanAlive(current) then
@@ -22817,7 +22421,7 @@ function V58BladeEngine.BuildCleanupWave(limit, current)
     local result, seen = {}, {}
     local cleanupCap = math.min(
         limit,
-        math.max(1, math.floor(tonumber(Config.BladeV3CleanupMaxTargets) or SliceHubMissionTPSMax()))
+        math.max(1, math.floor(tonumber(Config.BladeV3CleanupMaxTargets) or 8))
     )
 
     for _, entry in ipairs(damaged) do
@@ -23740,25 +23344,25 @@ function V6ExactBlade.Cycle()
         ) ~= nil
 
         if (not raidEnabled or objectiveGuardianPlan) and #plan > bankSize then
-            -- V9.8.2.7: tier-aware exact banks. Free remains capped at one bank of up
-            -- to 6 targets. Premium sends up to 10 targets per Slash, so a selected
-            -- value of 20 becomes 10 + 10 with only tiny acceptance spacing.
-            local bankStart = 1
-            while bankStart <= #plan do
-                local bankEnd = math.min(#plan, bankStart + bankSize - 1)
-                local bank = {}
-                for index = bankStart, bankEnd do
-                    bank[#bank + 1] = plan[index]
+            local bankA = {}
+            local bankB = {}
+            for index, item in ipairs(plan) do
+                if index <= bankSize then
+                    bankA[#bankA + 1] = item
+                else
+                    bankB[#bankB + 1] = item
                 end
+            end
 
-                local slashes, registers = V6ExactBlade.SendPlanBank(post, bank)
-                slashCount += slashes
-                registerCount += registers
-                bankStart = bankEnd + 1
+            local s1, r1 = V6ExactBlade.SendPlanBank(post, bankA)
+            slashCount += s1
+            registerCount += r1
 
-                if bankStart <= #plan then
-                    task.wait(math.max(0.005, tonumber(Config.V9BladeSecondBankDelay) or 0.012))
-                end
+            if #bankB > 0 then
+                task.wait(math.max(0.05, tonumber(Config.V9BladeSecondBankDelay) or 0.12))
+                local s2, r2 = V6ExactBlade.SendPlanBank(post, bankB)
+                slashCount += s2
+                registerCount += r2
             end
         else
             local s, r = V6ExactBlade.SendPlanBank(post, plan)
@@ -25838,7 +25442,165 @@ local function emergencyGrabSnap(reason)
     statusText = "Grab broken: " .. tostring(reason or "detected")
 end
 
--- Anti-Grab Escape was removed in V9.8.2.5. No polling or descendant guards are connected.
+local function evaluateGrabState()
+	-- Anti-grab is only needed while farming. Keeping it active after Farm is off
+	-- can falsely detect ordinary W/A/S/D UI labels and cancel the downward drop.
+	if not State.FarmEnabled or not State.AutoEscapeEnabled or not character or not rootPart then
+		State.IsGrabbed = false
+		return
+	end
+
+    local flagEvidence = grabFlagActive(character)
+        or grabFlagActive(player)
+        or grabValueStateActive(character)
+        or false
+
+    local postureEvidence = humanoid ~= nil
+        and (humanoid.Sit == true or humanoid.PlatformStand == true)
+
+    local camera = Workspace.CurrentCamera
+    local cutsceneOwned = camera and camera.CameraType == Enum.CameraType.Scriptable
+
+    -- Posture alone is noisy during raid transitions and Female choreography. A true
+    -- grab flag/value or a Titan↔character joint remains authoritative.
+    local currentGrabDetected = flagEvidence
+        or (postureEvidence and not cutsceneOwned and State.IsGrabbed == true)
+        or false
+
+    -- Joint check: only destroy true Titan↔character cross-links.
+    for _, item in ipairs(character:GetDescendants()) do
+        if breakGrabJoint(item) then
+            currentGrabDetected = true
+        end
+    end
+
+	-- V5.7.6: visible W/A/S/D labels are QTE helpers only, never proof of a grab.
+
+	-- Solver Loop
+    if currentGrabDetected then
+        State.IsGrabbed = true
+        emergencyGrabSnap("state")
+
+		if humanoid then
+			for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+				if string.find(string.lower(track.Name), "grab") or (track.Animation and string.find(string.lower(track.Animation.AnimationId), "grab")) then
+					track:Stop()
+				end
+			end
+			humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+
+		local now = os.clock()
+		if now - lastQTEPressTime >= QTEDebounceDelay then
+			local targetKeyFound = nil
+
+			for _, uiElement in ipairs(playerGui:GetDescendants()) do
+				if uiElement:IsA("TextLabel") and uiElement.Visible and uiElement.AbsoluteSize.X > 0 then
+					local cleanText = string.gsub(string.upper(uiElement.Text), "%s+", "")
+					if cleanText == "W" or cleanText == "A" or cleanText == "S" or cleanText == "D" then
+						targetKeyFound = Enum.KeyCode[cleanText]
+						break
+					end
+				elseif uiElement:IsA("ImageLabel") and uiElement.Visible and uiElement.AbsoluteSize.X > 0 then
+					local normalizedName = string.lower(uiElement.Name)
+					if string.find(normalizedName, "w") then targetKeyFound = Enum.KeyCode.W; break
+					elseif string.find(normalizedName, "a") then targetKeyFound = Enum.KeyCode.A; break
+					elseif string.find(normalizedName, "s") then targetKeyFound = Enum.KeyCode.S; break
+					elseif string.find(normalizedName, "d") then targetKeyFound = Enum.KeyCode.D; break
+					end
+				end
+			end
+
+			if targetKeyFound then
+				lastQTEPressTime = now
+				task.spawn(simulateHumanKeyPress, targetKeyFound)
+			end
+		end
+		-- emergencyGrabSnap applies one escape pulse. Do not reapply +Y velocity every
+		-- 25ms; that old loop could turn a false grab state into an infinite sky boost.
+	else
+		State.IsGrabbed = false
+	end
+end
+
+task.spawn(function()
+	while true do
+		task.wait(Config.GrabCheckDelay)
+		pcall(evaluateGrabState)
+	end
+end)
+
+-- V2.1.1 immediate grab connection guard.
+Workspace.DescendantAdded:Connect(function(instance)
+    if not State.FarmEnabled or not State.AutoEscapeEnabled or not character then
+        return
+    end
+
+    if not isGrabJoint(instance) then
+        return
+    end
+
+    task.defer(function()
+        if breakGrabJoint(instance) then
+            State.IsGrabbed = true
+            emergencyGrabSnap("joint")
+        end
+    end)
+end)
+
+-- Some grab joints can be created directly under Character descendants before the
+-- Workspace-wide event path becomes useful, so watch Character additions too.
+local CharacterGrabConnection = nil
+
+local function bindCharacterGrabGuard()
+    if CharacterGrabConnection then
+        CharacterGrabConnection:Disconnect()
+        CharacterGrabConnection = nil
+    end
+
+    if character then
+        CharacterGrabConnection = character.DescendantAdded:Connect(function(instance)
+            if not State.FarmEnabled or not State.AutoEscapeEnabled then
+                return
+            end
+
+            if isGrabJoint(instance) then
+                task.defer(function()
+                    if breakGrabJoint(instance) then
+                        State.IsGrabbed = true
+                        emergencyGrabSnap("character joint")
+                    end
+                end)
+                return
+            end
+
+            if instance:IsA("BoolValue") then
+                local lowerName = string.lower(instance.Name)
+                local relevant =
+                    string.find(lowerName, "grab", 1, true)
+                    or string.find(lowerName, "held", 1, true)
+                    or string.find(lowerName, "captur", 1, true)
+                    or string.find(lowerName, "caught", 1, true)
+
+                if relevant then
+                    instance:GetPropertyChangedSignal("Value"):Connect(function()
+                        if State.FarmEnabled
+                            and State.AutoEscapeEnabled
+                            and instance.Value == true then
+                            State.IsGrabbed = true
+                            emergencyGrabSnap("grab state value")
+                        end
+                    end)
+                end
+            end
+        end)
+    end
+end
+
+bindCharacterGrabGuard()
+player.CharacterAdded:Connect(function()
+    task.defer(bindCharacterGrabGuard)
+end)
 
 local SpearSupport = nil
 
@@ -26291,21 +26053,21 @@ local function normalizeProfile(data)
         BuffOrderRevolutionEnabled = booleanOr(data.BuffOrderRevolutionEnabled, true),
         RaidAutoOpenChestsEnabled = booleanOr(data.RaidAutoOpenChestsEnabled, false),
 		TitanRipperEnabled = booleanOr(data.TitanRipperEnabled, false),
-		TargetPriority = ({Balanced=true, Nearest=true, Objective=true, Boss=true, Abnormal=true})[tostring(data.TargetPriority or "Balanced")] and tostring(data.TargetPriority or "Balanced") or "Balanced",
+		AbilitySlot1Enabled = booleanOr(data.AbilitySlot1Enabled, true),
+		AbilitySlot2Enabled = booleanOr(data.AbilitySlot2Enabled, true),
+		AbilitySlot3Enabled = booleanOr(data.AbilitySlot3Enabled, true),
+		AbilitySlot4Enabled = booleanOr(data.AbilitySlot4Enabled, true),
+		AbilitySlot5Enabled = booleanOr(data.AbilitySlot5Enabled, true),
 		AutoRefillEnabled = booleanOr(data.AutoRefillEnabled, true),
 		AutoSkipCutsceneEnabled = SliceHubClampAutoSkipCutscene(booleanOr(data.AutoSkipCutsceneEnabled, false)),
+		AutoEscapeEnabled = booleanOr(data.AutoEscapeEnabled, true),
+		ExpandHitboxesEnabled = booleanOr(data.ExpandHitboxesEnabled, true),
 		PerformanceModeEnabled = booleanOr(data.PerformanceModeEnabled, false),
 		DisableEffectsEnabled = booleanOr(data.DisableEffectsEnabled, false),
 		EcoLoopModeEnabled = booleanOr(data.EcoLoopModeEnabled, false),
 		MapPropsHiddenEnabled = booleanOr(data.MapPropsHiddenEnabled, false),
 		RemoveInjuryKillFlashEnabled = booleanOr(data.RemoveInjuryKillFlashEnabled, false),
 		RemoveDamageTextEnabled = booleanOr(data.RemoveDamageTextEnabled, false),
-        OptimizationPreset = tostring(data.OptimizationPreset or "Default"),
-        CleanupDeadTitansEnabled = booleanOr(data.CleanupDeadTitansEnabled, false),
-        RemoveFogEnabled = booleanOr(data.RemoveFogEnabled, false),
-        DisablePostProcessingEnabled = booleanOr(data.DisablePostProcessingEnabled, false),
-        Disable3DRenderingEnabled = booleanOr(data.Disable3DRenderingEnabled, false),
-        FPSCap = math.clamp(math.floor((tonumber(data.FPSCap) or 60) + 0.5), 30, 999),
 		AutoRetryEnabled = booleanOr(data.AutoRetryEnabled, false),
 		AutoMissionLimit = math.clamp(math.floor((tonumber(data.AutoMissionLimit) or 0) + 0.5), 0, 10),
 		TitansPerHit = SliceHubMissionClampTPS(data.TitansPerHit, SliceHubMissionTPSMax()),
@@ -26372,9 +26134,15 @@ local function captureCurrentProfile()
         BuffOrderRevolutionEnabled = State.BuffOrderRevolutionEnabled ~= false,
         RaidAutoOpenChestsEnabled = State.RaidAutoOpenChestsEnabled == true,
 		TitanRipperEnabled = State.TitanRipperEnabled == true,
-		TargetPriority = tostring(State.TargetPriority or "Balanced"),
+		AbilitySlot1Enabled = State.AbilitySlot1Enabled ~= false,
+		AbilitySlot2Enabled = State.AbilitySlot2Enabled ~= false,
+		AbilitySlot3Enabled = State.AbilitySlot3Enabled ~= false,
+		AbilitySlot4Enabled = State.AbilitySlot4Enabled ~= false,
+		AbilitySlot5Enabled = State.AbilitySlot5Enabled ~= false,
 		AutoRefillEnabled = State.AutoRefillEnabled == true,
 		AutoSkipCutsceneEnabled = SliceHubClampAutoSkipCutscene(State.AutoSkipCutsceneEnabled),
+		AutoEscapeEnabled = State.AutoEscapeEnabled == true,
+		ExpandHitboxesEnabled = State.ExpandHitboxesEnabled == true,
 		MapPropsHiddenEnabled = State.MapPropsHiddenEnabled == true,
 		AutoRetryEnabled = State.AutoRetryEnabled == true,
 		AutoMissionLimit = math.clamp(math.floor((tonumber(State.AutoMissionLimit) or 0) + 0.5), 0, 10),
@@ -26441,9 +26209,6 @@ do
 	Performance.OriginalLighting = {}
 	Performance.OriginalTerrain = {}
 	Performance.OriginalEffects = setmetatable({}, {__mode = "k"})
-    Performance.OriginalPostEffects = setmetatable({}, {__mode = "k"})
-    Performance.OriginalAtmospheres = setmetatable({}, {__mode = "k"})
-    Performance.DeadTitanSeenAt = setmetatable({}, {__mode = "k"})
 	Performance.HiddenMapProps = {}
     Performance.ColossalCullSuspended = false
 	Performance.LightingSaved = false
@@ -26451,6 +26216,8 @@ do
 	Performance.DefaultConfig = {
 		LoopDelay = Config.LoopDelay,
 		TargetCacheLifetime = Config.TargetCacheLifetime,
+		HitboxRefreshDelay = Config.HitboxRefreshDelay,
+		GrabCheckDelay = Config.GrabCheckDelay,
 		CutsceneCheckDelay = Config.CutsceneCheckDelay,
 		AutoRefillCheckDelay = Config.AutoRefillCheckDelay,
 	}
@@ -26971,118 +26738,13 @@ do
         connect(game:GetService("Lighting"))
     end
 
-
-    function Performance:SetRemoveFog(enabled)
-        State.RemoveFogEnabled = enabled == true
-        local lighting = game:GetService("Lighting")
-        if State.RemoveFogEnabled then
-            if self.OriginalLighting.FogStart == nil then
-                self.OriginalLighting.FogStart = lighting.FogStart
-                self.OriginalLighting.FogEnd = lighting.FogEnd
-                self.OriginalLighting.FogColor = lighting.FogColor
-            end
-            self.SafeSet(lighting, "FogStart", 100000)
-            self.SafeSet(lighting, "FogEnd", 100000)
-            for _, object in ipairs(lighting:GetChildren()) do
-                if object:IsA("Atmosphere") then
-                    if not self.OriginalAtmospheres[object] then
-                        self.OriginalAtmospheres[object] = {
-                            Density = self.SafeGet(object, "Density"),
-                            Haze = self.SafeGet(object, "Haze"),
-                            Glare = self.SafeGet(object, "Glare"),
-                        }
-                    end
-                    self.SafeSet(object, "Density", 0)
-                    self.SafeSet(object, "Haze", 0)
-                    self.SafeSet(object, "Glare", 0)
-                end
-            end
-        else
-            if self.OriginalLighting.FogStart ~= nil then
-                self.SafeSet(lighting, "FogStart", self.OriginalLighting.FogStart)
-                self.SafeSet(lighting, "FogEnd", self.OriginalLighting.FogEnd)
-                self.SafeSet(lighting, "FogColor", self.OriginalLighting.FogColor)
-            end
-            for object, values in pairs(self.OriginalAtmospheres) do
-                if object and object.Parent and type(values) == "table" then
-                    for property, value in pairs(values) do self.SafeSet(object, property, value) end
-                end
-            end
-        end
-    end
-
-    function Performance:SetPostProcessingDisabled(enabled)
-        State.DisablePostProcessingEnabled = enabled == true
-        local lighting = game:GetService("Lighting")
-        for _, object in ipairs(lighting:GetChildren()) do
-            if object:IsA("PostEffect") then
-                if self.OriginalPostEffects[object] == nil then
-                    self.OriginalPostEffects[object] = self.SafeGet(object, "Enabled")
-                end
-                self.SafeSet(object, "Enabled", not State.DisablePostProcessingEnabled and self.OriginalPostEffects[object] or false)
-            end
-        end
-    end
-
-    function Performance:IsDeadTitanModel(model)
-        if not model or not model:IsA("Model") or not model.Parent then return false end
-        local lower = string.lower(model.Name)
-        if string.find(lower, "boss", 1, true) then return false end
-        local humanoid = model:FindFirstChildOfClass("Humanoid")
-        if not humanoid or humanoid.Health > 0 then return false end
-        if string.find(lower, "titan", 1, true) then return true end
-        local parentName = model.Parent and string.lower(model.Parent.Name) or ""
-        return string.find(parentName, "titan", 1, true) ~= nil
-    end
-
-    function Performance:CleanupDeadTitans()
-        if State.CleanupDeadTitansEnabled ~= true then return 0 end
-        local now = os.clock()
-        local removed = 0
-        for _, object in ipairs(Workspace:GetDescendants()) do
-            if object:IsA("Model") and self:IsDeadTitanModel(object) then
-                local firstSeen = self.DeadTitanSeenAt[object]
-                if not firstSeen then
-                    self.DeadTitanSeenAt[object] = now
-                elseif now - firstSeen >= 2.0 then
-                    self.DeadTitanSeenAt[object] = nil
-                    pcall(function() object:Destroy() end)
-                    removed += 1
-                end
-            end
-        end
-        return removed
-    end
-
-    function Performance:SetCleanupDeadTitans(enabled)
-        State.CleanupDeadTitansEnabled = enabled == true
-        if not State.CleanupDeadTitansEnabled then
-            self.DeadTitanSeenAt = setmetatable({}, {__mode = "k"})
-        end
-    end
-
-    function Performance:SetFPSCap(value)
-        value = math.clamp(math.floor((tonumber(value) or 60) + 0.5), 30, 999)
-        State.FPSCap = value
-        local env = type(getgenv) == "function" and getgenv() or _G
-        local setter = env.setfpscap or setfpscap
-        if type(setter) ~= "function" then return false end
-        return pcall(setter, value)
-    end
-
-    function Performance:Set3DRenderingDisabled(enabled)
-        State.Disable3DRenderingEnabled = enabled == true
-        local runService = game:GetService("RunService")
-        return pcall(function()
-            runService:Set3dRenderingEnabled(not State.Disable3DRenderingEnabled)
-        end)
-    end
-
 	function Performance:SetEcoLoops(enabled)
 		State.EcoLoopModeEnabled = enabled == true
 		if State.EcoLoopModeEnabled then
 			Config.LoopDelay = 0.05
 			Config.TargetCacheLifetime = 0.35
+			Config.HitboxRefreshDelay = 1.25
+			Config.GrabCheckDelay = 0.14
 			Config.CutsceneCheckDelay = 0.14
 			Config.AutoRefillCheckDelay = 0.10
 		else
@@ -27094,7 +26756,6 @@ do
 
 	task.spawn(function()
 		local lastPropCullAt = 0
-        local lastDeadCleanupAt = 0
 		while true do
 			task.wait(Config.PerformanceRefreshDelay)
 			if State.PerformanceModeEnabled then
@@ -27103,12 +26764,6 @@ do
 			if State.DisableEffectsEnabled then
 				Performance:ApplyNoEffects()
 			end
-            if State.RemoveFogEnabled then Performance:SetRemoveFog(true) end
-            if State.DisablePostProcessingEnabled then Performance:SetPostProcessingDisabled(true) end
-            if State.CleanupDeadTitansEnabled and os.clock() - lastDeadCleanupAt >= 2.0 then
-                lastDeadCleanupAt = os.clock()
-                Performance:CleanupDeadTitans()
-            end
 			if State.MapPropsHiddenEnabled and os.clock() - lastPropCullAt >= Config.MapPropCullRefreshDelay then
 				lastPropCullAt = os.clock()
 				Performance:ApplyMapPropCull()
@@ -27121,11 +26776,6 @@ end
 pcall(function()
     if State.RemoveInjuryKillFlashEnabled then Performance:SetRemoveInjuryKillFlash(true) end
     if State.RemoveDamageTextEnabled then Performance:SetRemoveDamageText(true) end
-    if State.RemoveFogEnabled then Performance:SetRemoveFog(true) end
-    if State.DisablePostProcessingEnabled then Performance:SetPostProcessingDisabled(true) end
-    if State.CleanupDeadTitansEnabled then Performance:SetCleanupDeadTitans(true) end
-    Performance:SetFPSCap(State.FPSCap)
-    if State.Disable3DRenderingEnabled then Performance:Set3DRenderingDisabled(true) end
 end)
 
 ---------------------------------------------------------------------
@@ -28604,14 +28254,9 @@ end)()
         return button
     end
 
-    local lastLockedPageNoticeAt = 0
     function setV1Page(name)
         if name == "Waves" and not SliceHubWaveAutomationAllowed() then
-            local now = os.clock()
-            if now - lastLockedPageNoticeAt >= 0.75 then
-                lastLockedPageNoticeAt = now
-                showNotification("Premium only", "This tab unlocks only when you have Premium.", "info")
-            end
+            showNotification("Premium only", "This tab unlocks only when you have Premium.", "info")
             return
         end
         local target = V1Pages[name]
@@ -28633,7 +28278,7 @@ end)()
         print("[SliceHub V3] page ->", name)
     end
 
-    local tabNames = {"Welcome", "Farm", "Raids", "Waves", "Blades", "Spears", "Combat", "Stall", "Stats", "Webhook", "Optimization", "Config", "Settings", "Discord"}
+    local tabNames = {"Welcome", "Farm", "Raids", "Waves", "Blades", "Spears", "Combat", "Stall", "Stats", "Webhook", "Visuals", "Config", "Settings", "Discord"}
     for index, name in ipairs(tabNames) do
         createV1Page(name)
         if name == "Welcome" or name == "Blades" or name == "Stats" or name == "Config" then
@@ -28654,6 +28299,13 @@ end)()
             setV1Page(name)
         end
         button.Activated:Connect(activatePage)
+        button.MouseButton1Click:Connect(activatePage)
+        button.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                activatePage()
+            end
+        end)
         button.MouseEnter:Connect(function()
             if activeV1Page ~= name then
                 tween(button, 0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, {
@@ -28913,7 +28565,7 @@ end)()
     wavesPage = createSectionHost(V1Pages.Waves, 10, "WavesAutomation")
     combatPage = createSectionHost(V1Pages.Combat, 10, "CombatCore")
     configPage = createSectionHost(V1Pages.Config, 10, "ConfigCore")
-    performancePage = createSectionHost(V1Pages.Optimization, 10, "VisualPerformance")
+    performancePage = createSectionHost(V1Pages.Visuals, 10, "VisualPerformance")
     statsPage = createSectionHost(V1Pages.Stats, 10, "StatsCore")
     settingsPage = createSectionHost(V1Pages.Settings, 10, "SettingsCore")
     settingsOuterPage = V1Pages.Settings
@@ -28939,7 +28591,7 @@ end)()
         Blades = V1Pages.Blades,
         Auto = V1Pages.Farm,
         Config = V1Pages.Config,
-        Performance = V1Pages.Optimization,
+        Performance = V1Pages.Visuals,
         Stats = V1Pages.Stats,
         Spears = V1Pages.Spears,
         Stall = V1Pages.Stall,
@@ -28965,7 +28617,7 @@ end)()
             Blades = "Blades",
             Auto = "Farm",
             Config = "Config",
-            Performance = "Optimization",
+            Performance = "Visuals",
             Stats = "Stats",
             Spears = "Spears",
             Stall = "Stall",
@@ -29020,28 +28672,8 @@ end)()
         return card
     end
 
-    makeInfoCard(V1Pages.Welcome, 1, 112, "SLICE HUB V9.8.2.5", "Free and Premium share the cleaned Combat page, lobby-only weapon preparation, and the corrected tier-aware Titans Per Swing route. Waves remain unchanged in this patch.")
-    makeInfoCard(V1Pages.Welcome, 2, 150, "CONTROL ROUTES", "FARMING • Missions, Raids, and Premium Waves\nCOMBAT • target priority, blades, spears, boss pressure, and stall flow\nUTILITY • stats, webhooks, optimization\nCONFIGURATION • profiles, persistence, themes, keybinds")
-
-    local sessionCard = makeInfoCard(V1Pages.Welcome, 3, 92, "SESSION ACTIONS", "Return to the AOT:R lobby from any supported mission or raid instance.")
-    local lobbyButton = Instance.new("TextButton")
-    lobbyButton.AnchorPoint = Vector2.new(1, 1)
-    lobbyButton.Position = UDim2.new(1, -14, 1, -12)
-    lobbyButton.Size = UDim2.fromOffset(176, 30)
-    lobbyButton.BackgroundColor3 = Theme.Button
-    lobbyButton.BorderSizePixel = 0
-    lobbyButton.AutoButtonColor = false
-    lobbyButton.Font = Enum.Font.GothamBold
-    lobbyButton.Text = "TELEPORT TO LOBBY"
-    lobbyButton.TextColor3 = Theme.Text
-    lobbyButton.TextSize = 10
-    lobbyButton.ZIndex = 7
-    lobbyButton.Parent = sessionCard
-    uiCorner(lobbyButton, 4)
-    uiStroke(lobbyButton, Theme.Stroke, 0.20)
-    lobbyButton.Activated:Connect(function()
-        if ReturnToLobby and ReturnToLobby.Run then ReturnToLobby.Run() end
-    end)
+    makeInfoCard(V1Pages.Welcome, 1, 112, "SLICE HUB V9.8.2.0 KEY GATE", "Premium adds direct Waves launch, a dedicated Waves page, existing-blade Auto Farm, and live supply-crate pickup/delivery. Gear and HQ upgrade rows are GUI-only placeholders for the next protocol pass.")
+    makeInfoCard(V1Pages.Welcome, 2, 150, "CONTROL ROUTES", "FARMING • Missions, Raids, and Premium Waves\nCOMBAT • blades, spears, boss pressure, and stall flow\nUTILITY • stats, webhooks, visual performance\nCONFIGURATION • profiles, persistence, themes, keybinds")
     makeInfoCard(V1Pages.Discord, 1, 128, "JOIN DISCORD", "Join the Slice Hub Discord for feature previews, sneaks, new releases, support, giveaways, premium updates, and community chat.\n\nInvite: discord.gg/Fg3tQG5CSA")
     makeInfoCard(V1Pages.Discord, 2, 92, "WHY JOIN?", "Get release notes, feature polls, premium announcements, bug status, and help from the community.")
 
@@ -29890,95 +29522,139 @@ ReturnToLobby = {
 end)()
 
 
-;(function() -- Combat tab: Target Priority only
-    local priorityCard = Instance.new("Frame")
-    priorityCard.Name = "TargetPriorityCard"
-    priorityCard.LayoutOrder = 1
-    priorityCard.Size = UDim2.new(1, 0, 0, 132)
-    priorityCard.BackgroundColor3 = Theme.CardSoft
-    priorityCard.BorderSizePixel = 0
-    priorityCard.Parent = combatPage
+;(function() -- fast mission actions scoped to avoid Luau local-register pressure
+	local function makeSmallActionButton(parent, text, xOffset, width, color, callback)
+		local actionButton = Instance.new("TextButton")
+		actionButton.Position = UDim2.fromOffset(xOffset, 50)
+		actionButton.Size = UDim2.new(0, width, 0, 30)
+		actionButton.BackgroundColor3 = color or Theme.Button
+		actionButton.BorderSizePixel = 0
+		actionButton.AutoButtonColor = false
+		actionButton.Font = Enum.Font.GothamBold
+		actionButton.Text = text
+		actionButton.TextColor3 = Theme.Text
+		actionButton.TextSize = 10
+		actionButton.Parent = parent
 
-    local cardCorner = Instance.new("UICorner")
-    cardCorner.CornerRadius = UDim.new(0, 11)
-    cardCorner.Parent = priorityCard
+		local actionCorner = Instance.new("UICorner")
+		actionCorner.CornerRadius = UDim.new(0, 8)
+		actionCorner.Parent = actionButton
 
-    local cardStroke = Instance.new("UIStroke")
-    cardStroke.Color = Theme.StrokeSoft
-    cardStroke.Transparency = 0.34
-    cardStroke.Parent = priorityCard
+		local actionStroke = Instance.new("UIStroke")
+		actionStroke.Color = Theme.Stroke
+		actionStroke.Transparency = 0.38
+		actionStroke.Parent = actionButton
 
-    local title = Instance.new("TextLabel")
-    title.Position = UDim2.fromOffset(16, 9)
-    title.Size = UDim2.new(1, -32, 0, 20)
-    title.BackgroundTransparency = 1
-    title.Font = Enum.Font.GothamBold
-    title.Text = "TARGET PRIORITY"
-    title.TextColor3 = Theme.Text
-    title.TextSize = 12
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    title.Parent = priorityCard
+		actionButton.Activated:Connect(callback)
+		return actionButton
+	end
 
-    local hint = Instance.new("TextLabel")
-    hint.Position = UDim2.fromOffset(16, 30)
-    hint.Size = UDim2.new(1, -32, 0, 16)
-    hint.BackgroundTransparency = 1
-    hint.Font = Enum.Font.Gotham
-    hint.Text = "Raid-critical boss locks stay authoritative."
-    hint.TextColor3 = Theme.TextMuted
-    hint.TextSize = 10
-    hint.TextXAlignment = Enum.TextXAlignment.Left
-    hint.Parent = priorityCard
+	local missionActionCard = Instance.new("Frame")
+	missionActionCard.Name = "MissionActionCard"
+	missionActionCard.LayoutOrder = 0
+	missionActionCard.Size = UDim2.new(1, 0, 0, 88)
+	missionActionCard.BackgroundColor3 = Theme.CardSoft
+	missionActionCard.BorderSizePixel = 0
+	missionActionCard.Parent = combatPage
 
-    local priorityButtons = {}
-    local choices = {
-        {Name = "Balanced", X = 16, Y = 54, W = 112},
-        {Name = "Nearest", X = 140, Y = 54, W = 112},
-        {Name = "Objective", X = 264, Y = 54, W = 122},
-        {Name = "Boss", X = 16, Y = 92, W = 174},
-        {Name = "Abnormal", X = 202, Y = 92, W = 184},
-    }
+	local missionActionCorner = Instance.new("UICorner")
+	missionActionCorner.CornerRadius = UDim.new(0, 11)
+	missionActionCorner.Parent = missionActionCard
 
-    refreshTargetPriorityUI = function()
-        State.TargetPriority = V9825NormalizeTargetPriority(State.TargetPriority)
-        for name, button in pairs(priorityButtons) do
-            local selected = name == State.TargetPriority
-            button.BackgroundColor3 = selected and Theme.Accent or Theme.ElementBg
-            button.TextColor3 = selected and Color3.fromRGB(255, 255, 255) or Theme.TextMuted
-            button.Text = string.upper(name) .. (selected and "  ✓" or "")
-        end
-    end
+	local missionActionStroke = Instance.new("UIStroke")
+	missionActionStroke.Color = Theme.Stroke
+	missionActionStroke.Transparency = 0.30
+	missionActionStroke.Parent = missionActionCard
 
-    for _, choice in ipairs(choices) do
-        local button = Instance.new("TextButton")
-        button.Position = UDim2.fromOffset(choice.X, choice.Y)
-        button.Size = UDim2.new(0, choice.W, 0, 28)
-        button.BackgroundColor3 = Theme.ElementBg
-        button.BorderSizePixel = 0
-        button.AutoButtonColor = false
-        button.Font = Enum.Font.GothamBold
-        button.Text = string.upper(choice.Name)
-        button.TextColor3 = Theme.TextMuted
-        button.TextSize = 10
-        button.Parent = priorityCard
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 8)
-        corner.Parent = button
-        priorityButtons[choice.Name] = button
+	local missionTitle = Instance.new("TextLabel")
+	missionTitle.Position = UDim2.fromOffset(16, 8)
+	missionTitle.Size = UDim2.new(1, -32, 0, 19)
+	missionTitle.BackgroundTransparency = 1
+	missionTitle.Font = Enum.Font.GothamBold
+	missionTitle.Text = "MISSION ACTIONS"
+	missionTitle.TextColor3 = Theme.Text
+	missionTitle.TextSize = 12
+	missionTitle.TextXAlignment = Enum.TextXAlignment.Left
+	missionTitle.Parent = missionActionCard
 
-        button.Activated:Connect(function()
-            State.TargetPriority = choice.Name
-            cachedTitanCandidatesAt = 0
-            if updateObjectiveBrain then pcall(updateObjectiveBrain, true) end
-            refreshTargetPriorityUI()
-            saveSettingsIfReady()
-            showNotification("Target priority", choice.Name .. " targeting enabled.", "success")
-        end)
-    end
+	local missionHint = Instance.new("TextLabel")
+	missionHint.Position = UDim2.fromOffset(16, 28)
+	missionHint.Size = UDim2.new(1, -32, 0, 17)
+	missionHint.BackgroundTransparency = 1
+	missionHint.Font = Enum.Font.Gotham
+	missionHint.Text = "Use LOBBY anytime, or reset the sky-lock without leaving the mission."
+	missionHint.TextColor3 = Theme.TextMuted
+	missionHint.TextSize = 10
+	missionHint.TextXAlignment = Enum.TextXAlignment.Left
+	missionHint.Parent = missionActionCard
 
-    refreshTargetPriorityUI()
+	makeSmallActionButton(missionActionCard, "TELEPORT TO LOBBY", 16, 178, Theme.Button, function()
+		ReturnToLobby.Run()
+	end)
+
+	makeSmallActionButton(missionActionCard, "RESET LOCK / DROP", 204, 170, Theme.CardActive, function()
+		State.FarmEnabled = false
+		if Controls and Controls.Farm and Controls.Farm.Set then
+			pcall(function() Controls.Farm:Set(false, true) end)
+		end
+		releaseCombatLock()
+		statusText = "Combat lock reset"
+		showNotification("Lock reset", "Farm stopped and character was released from sky-lock.", "info")
+	end)
 end)()
 
+;(function() -- Combat preset + adaptive skill slot module UI
+	local card = Instance.new("Frame")
+	card.Name = "CombatPresetCard"
+	card.LayoutOrder = 1
+	card.Size = UDim2.new(1, 0, 0, 160)
+	card.BackgroundColor3 = Theme.CardSoft
+	card.BorderSizePixel = 0
+	card.Parent = combatPage
+	local cardCorner = Instance.new("UICorner"); cardCorner.CornerRadius = UDim.new(0, 11); cardCorner.Parent = card
+	local cardStroke = Instance.new("UIStroke"); cardStroke.Color = Theme.StrokeSoft; cardStroke.Transparency = 0.34; cardStroke.Parent = card
+	local title = Instance.new("TextLabel")
+	title.Position = UDim2.fromOffset(16, 8); title.Size = UDim2.new(1, -32, 0, 19); title.BackgroundTransparency = 1
+	title.Font = Enum.Font.GothamBold; title.Text = "COMBAT PRESETS + BLASTER SLOTS"; title.TextColor3 = Theme.Text; title.TextSize = 12; title.TextXAlignment = Enum.TextXAlignment.Left; title.Parent = card
+	combatPresetLabel = Instance.new("TextLabel")
+	combatPresetLabel.Position = UDim2.fromOffset(16, 29); combatPresetLabel.Size = UDim2.new(1, -32, 0, 16); combatPresetLabel.BackgroundTransparency = 1
+	combatPresetLabel.Font = Enum.Font.GothamMedium; combatPresetLabel.Text = "Preset: " .. tostring(State.CombatPreset or "Sonic") .. " | exact Blaster skill IDs only"; combatPresetLabel.TextColor3 = Theme.TextMuted; combatPresetLabel.TextSize = 10; combatPresetLabel.TextXAlignment = Enum.TextXAlignment.Left; combatPresetLabel.Parent = card
+	local function miniButton(text, x, y, w, color, callback)
+		local button = Instance.new("TextButton")
+		button.Position = UDim2.fromOffset(x, y); button.Size = UDim2.new(0, w, 0, 28); button.BackgroundColor3 = color or Theme.Button; button.BorderSizePixel = 0; button.AutoButtonColor = false
+		button.Font = Enum.Font.GothamBold; button.Text = text; button.TextColor3 = Theme.Text; button.TextSize = 10; button.Parent = card
+		local corner = Instance.new("UICorner"); corner.CornerRadius = UDim.new(0, 8); corner.Parent = button
+		button.Activated:Connect(callback)
+		return button
+	end
+	miniButton("SONIC", 16, 51, 112, Theme.Button, function() applyCombatPreset("Sonic") end)
+	miniButton("SAFE", 140, 51, 112, Theme.CardActive, function() applyCombatPreset("Safe") end)
+	miniButton("OBJECTIVE", 264, 51, 122, Theme.TabSelectedB, function() applyCombatPreset("Objective") end)
+	local slotButtons = {}
+	local function slotEnabled(slotNumber)
+		return State["AbilitySlot" .. tostring(slotNumber) .. "Enabled"] ~= false
+	end
+	local function renderSlotButtons()
+		for slotNumber, button in pairs(slotButtons) do
+			local enabled = slotEnabled(slotNumber)
+			button.Text = "SLOT " .. tostring(slotNumber) .. (enabled and ": ON" or ": OFF")
+			button.BackgroundColor3 = enabled and Theme.Button or Theme.Card
+		end
+	end
+	for slotNumber = 1, 5 do
+		local slotCopy = slotNumber
+		local x = 16 + ((slotCopy - 1) % 3) * 124
+		local y = slotCopy <= 3 and 88 or 122
+		slotButtons[slotCopy] = miniButton("SLOT " .. tostring(slotCopy) .. ": ON", x, y, 112, Theme.Button, function()
+			local key = "AbilitySlot" .. tostring(slotCopy) .. "Enabled"
+			State[key] = State[key] == false
+			renderSlotButtons()
+			saveSettingsIfReady()
+		end)
+	end
+	renderSlotButtons()
+	task.defer(function() if applyCombatPreset then applyCombatPreset(State.CombatPreset or "Sonic", true) end end)
+end)()
 ;(function() -- Auto tab scoped to avoid Luau's 200 local-register limit
 	Controls.AutoRetry = createToggle(autoPage, 1, "Auto Retry", "Retries after any result screen: completed or failed.", State.AutoRetryEnabled, function(value)
 		State.AutoRetryEnabled = value == true
@@ -30741,7 +30417,7 @@ V5BuffStatusPadding.Parent = V5BuffStatusLabel
     end
  end)
 
-Controls.TitansPerHit = createIntegerSlider(WeaponUI.BladesPage or mainPage, 12, "Titans Per Swing", "One attack cycle queues up to " .. tostring(SliceHubMissionTPSMax()) .. " Titans in server-safe Slash banks.", SliceHubMissionTPSMin(), SliceHubMissionTPSMax(), SliceHubMissionClampTPS(Config.TitansPerHit, SliceHubMissionTPSMax()), function(value)
+Controls.TitansPerHit = createIntegerSlider(WeaponUI.BladesPage or mainPage, 12, "Titans Per Swing", "One attack cycle queues up to " .. tostring(SliceHubMissionTPSMax()) .. " Titans in two fast micro-waves.", SliceHubMissionTPSMin(), SliceHubMissionTPSMax(), SliceHubMissionClampTPS(Config.TitansPerHit, SliceHubMissionTPSMax()), function(value)
 	Config.TitansPerHit = SliceHubMissionClampTPS(value, SliceHubMissionTPSMax())
 	lastBladeBurstCount = math.min(lastBladeBurstCount, Config.TitansPerHit)
 	saveSettingsIfReady()
@@ -30768,181 +30444,69 @@ objectiveBrainCorner = Instance.new("UICorner")
 objectiveBrainCorner.CornerRadius = UDim.new(0, 9)
 objectiveBrainCorner.Parent = objectiveBrainStatusLabel
 
+Controls.AutoEscape = createToggle(combatPage, 2, "Anti-Grab Escape", "Clears physical grabs and handles visible QTE prompts.", State.AutoEscapeEnabled, function(value)
+	State.AutoEscapeEnabled = value
+	saveSettingsIfReady()
+end)
+
+Controls.ExpandHitboxes = createToggle(combatPage, 3, "Colossal Hitbox", "Expands Titan napes to 1000 × 1000 × 1000.", State.ExpandHitboxesEnabled, function(value)
+	State.ExpandHitboxesEnabled = value
+	saveSettingsIfReady()
+end)
+
 ;(function() -- performance page scoped to avoid Luau's 200 local-register limit
 	local performanceUiReady = false
 
-
-    local presetCard = Instance.new("Frame")
-    presetCard.Name = "OptimizationPreset"
-    presetCard.LayoutOrder = 1
-    presetCard.Size = UDim2.new(1, 0, 0, 76)
-    presetCard.BackgroundColor3 = Theme.CardSoft
-    presetCard.BorderSizePixel = 0
-    presetCard.Parent = performancePage
-    Instance.new("UICorner", presetCard).CornerRadius = UDim.new(0, 6)
-
-    local presetTitle = Instance.new("TextLabel")
-    presetTitle.Position = UDim2.fromOffset(10, 6)
-    presetTitle.Size = UDim2.new(1, -20, 0, 18)
-    presetTitle.BackgroundTransparency = 1
-    presetTitle.Font = Enum.Font.GothamBold
-    presetTitle.Text = "OPTIMIZATION PRESET • " .. tostring(State.OptimizationPreset or "Default")
-    presetTitle.TextColor3 = Theme.Text
-    presetTitle.TextSize = 11
-    presetTitle.TextXAlignment = Enum.TextXAlignment.Left
-    presetTitle.Parent = presetCard
-
-    local presetButtons = {}
-    local function setPresetButtonVisuals(active)
-        for name, button in pairs(presetButtons) do
-            button.BackgroundColor3 = name == active and Theme.Accent or Theme.ElementBg
-            button.TextColor3 = name == active and Color3.fromRGB(255,255,255) or Theme.TextMuted
-        end
-        presetTitle.Text = "OPTIMIZATION PRESET • " .. active
-    end
-
-    local function applyOptimizationPreset(name)
-        State.OptimizationPreset = name
-        if name == "Default" then
-            Controls.LowGraphics:Set(false, true)
-            Controls.NoEffects:Set(false, true)
-            Controls.EcoLoops:Set(false, true)
-            Controls.CleanupDeadTitans:Set(false, true)
-            Controls.RemoveFog:Set(false, true)
-            Controls.DisablePostProcessing:Set(false, true)
-        elseif name == "Balanced" then
-            Controls.LowGraphics:Set(true, true)
-            Controls.NoEffects:Set(true, true)
-            Controls.EcoLoops:Set(false, true)
-            Controls.CleanupDeadTitans:Set(true, true)
-            Controls.RemoveFog:Set(true, true)
-            Controls.DisablePostProcessing:Set(true, true)
-        elseif name == "Max FPS" then
-            Controls.LowGraphics:Set(true, true)
-            Controls.NoEffects:Set(true, true)
-            Controls.EcoLoops:Set(true, true)
-            Controls.CleanupDeadTitans:Set(true, true)
-            Controls.RemoveFog:Set(true, true)
-            Controls.DisablePostProcessing:Set(true, true)
-            Controls.MapProps:Set(true, true)
-            Controls.RemoveInjuryKillFlash:Set(true, true)
-            Controls.RemoveDamageText:Set(true, true)
-        end
-        setPresetButtonVisuals(name)
-        saveSettingsIfReady()
-    end
-
-    for index, name in ipairs({"Default", "Balanced", "Max FPS"}) do
-        local button = Instance.new("TextButton")
-        button.Name = name:gsub("%s+", "") .. "Preset"
-        button.Position = UDim2.new((index - 1) / 3, 8, 0, 32)
-        button.Size = UDim2.new(1/3, -12, 0, 34)
-        button.BackgroundColor3 = Theme.ElementBg
-        button.BorderSizePixel = 0
-        button.Font = Enum.Font.GothamBold
-        button.Text = name
-        button.TextSize = 10
-        button.AutoButtonColor = false
-        button.Parent = presetCard
-        Instance.new("UICorner", button).CornerRadius = UDim.new(0, 5)
-        presetButtons[name] = button
-        button.Activated:Connect(function() applyOptimizationPreset(name) end)
-    end
-
-	Controls.LowGraphics = createToggle(performancePage, 2, "Low Graphics Mode", "Disables shadows, terrain decoration, and heavy water visuals.", State.PerformanceModeEnabled, function(value)
+	Controls.LowGraphics = createToggle(performancePage, 1, "Low Graphics Mode", "Disables shadows, terrain decoration, and heavy water visuals.", State.PerformanceModeEnabled, function(value)
 		Performance:SetLowGraphics(value)
 		saveSettingsIfReady()
+		if performanceUiReady then
+			showNotification(value and "Performance on" or "Performance off", "Low graphics mode " .. (value and "enabled." or "restored."), value and "success" or "info")
+		end
 	end)
 
-	Controls.NoEffects = createToggle(performancePage, 3, "Disable Effects", "Turns off particles, trails, beams, smoke, fire, and sparkles.", State.DisableEffectsEnabled, function(value)
+	Controls.NoEffects = createToggle(performancePage, 2, "Disable Effects", "Turns off particles, trails, beams, smoke, fire, and sparkles.", State.DisableEffectsEnabled, function(value)
 		Performance:SetNoEffects(value)
 		saveSettingsIfReady()
+		if performanceUiReady then
+			showNotification(value and "Effects disabled" or "Effects restored", value and "Visual effects will stay disabled while this is on." or "Saved effect states restored.", value and "success" or "info")
+		end
 	end)
 
-	Controls.EcoLoops = createToggle(performancePage, 4, "Eco Loop Mode", "Reduces non-critical scan frequency to lower CPU usage while farming.", State.EcoLoopModeEnabled, function(value)
+	Controls.EcoLoops = createToggle(performancePage, 3, "Eco Loop Mode", "Reduces script scan frequency to lower CPU usage while farming.", State.EcoLoopModeEnabled, function(value)
 		Performance:SetEcoLoops(value)
 		saveSettingsIfReady()
+		if performanceUiReady then
+			showNotification(value and "Eco loops enabled" or "Eco loops disabled", value and "Some checks run slower for better FPS." or "Default loop speed restored.", value and "success" or "info")
+		end
 	end)
 
-    Controls.CleanupDeadTitans = createToggle(performancePage, 5, "Cleanup Dead Titans", "Locally removes dead non-boss Titan models after a short safety delay.", State.CleanupDeadTitansEnabled, function(value)
-        Performance:SetCleanupDeadTitans(value)
-        saveSettingsIfReady()
-    end)
 
-    Controls.RemoveFog = createToggle(performancePage, 6, "Remove Fog", "Removes Lighting fog and Atmosphere haze locally; restores them when disabled.", State.RemoveFogEnabled, function(value)
-        Performance:SetRemoveFog(value)
-        saveSettingsIfReady()
-    end)
-
-    Controls.DisablePostProcessing = createToggle(performancePage, 7, "Disable Post Processing", "Disables blur, bloom, depth of field, sun rays, and color effects.", State.DisablePostProcessingEnabled, function(value)
-        Performance:SetPostProcessingDisabled(value)
-        saveSettingsIfReady()
-    end)
-
-	Controls.MapProps = createToggle(performancePage, 8, "Hide Map Props", "Locally removes houses, walls, trees, crates, and decor to raise FPS.", State.MapPropsHiddenEnabled, function(value)
-		Performance:SetMapPropCull(value)
+	Controls.MapProps = createToggle(performancePage, 4, "Hide Map Props", "Locally removes houses, walls, trees, crates, and decor to raise FPS.", State.MapPropsHiddenEnabled, function(value)
+		local moved = Performance:SetMapPropCull(value)
 		saveSettingsIfReady()
+		if performanceUiReady then
+			if value then
+				showNotification("Map props hidden", tostring(moved or 0) .. " props moved out of Workspace locally.", "success")
+			else
+				showNotification("Map props restored", "Hidden props restored for this session.", "info")
+			end
+		end
 	end)
 
-    Controls.RemoveInjuryKillFlash = createToggle(performancePage, 9, "Remove Injury/Kill Flash", "Hides the injury/kill screen flash without touching Black Flash skill effects.", State.RemoveInjuryKillFlashEnabled, function(value)
+
+    Controls.RemoveInjuryKillFlash = createToggle(performancePage, 5, "Remove Injury/Kill Flash", "Hides the injury/kill screen flash without touching Black Flash skill effects.", State.RemoveInjuryKillFlashEnabled, function(value)
         Performance:SetRemoveInjuryKillFlash(value)
         saveSettingsIfReady()
     end)
 
-    Controls.RemoveDamageText = createToggle(performancePage, 10, "Remove Damage Text", "Hides world-space floating damage numbers while keeping objective and result UI intact.", State.RemoveDamageTextEnabled, function(value)
+    Controls.RemoveDamageText = createToggle(performancePage, 6, "Remove Damage Text", "Hides world-space floating damage numbers while keeping objective and result UI intact.", State.RemoveDamageTextEnabled, function(value)
         Performance:SetRemoveDamageText(value)
         saveSettingsIfReady()
     end)
 
-    Controls.Disable3DRendering = createToggle(performancePage, 11, "Disable 3D Rendering", "Black-screen farming mode. The GUI remains usable and the world returns when disabled.", State.Disable3DRenderingEnabled, function(value)
-        local ok = Performance:Set3DRenderingDisabled(value)
-        saveSettingsIfReady()
-        if performanceUiReady and not ok then
-            showNotification("Unsupported", "This executor cannot toggle Roblox 3D rendering.", "error")
-        end
-    end)
-
-    local fpsCard = Instance.new("Frame")
-    fpsCard.LayoutOrder = 12
-    fpsCard.Size = UDim2.new(1, 0, 0, 64)
-    fpsCard.BackgroundColor3 = Theme.CardSoft
-    fpsCard.BorderSizePixel = 0
-    fpsCard.Parent = performancePage
-    Instance.new("UICorner", fpsCard).CornerRadius = UDim.new(0, 6)
-    local fpsLabel = Instance.new("TextLabel")
-    fpsLabel.Position = UDim2.fromOffset(10, 5)
-    fpsLabel.Size = UDim2.new(1, -20, 0, 18)
-    fpsLabel.BackgroundTransparency = 1
-    fpsLabel.Font = Enum.Font.GothamMedium
-    fpsLabel.Text = "FPS CAP • " .. tostring(State.FPSCap == 999 and "Unlimited" or State.FPSCap)
-    fpsLabel.TextColor3 = Theme.Text
-    fpsLabel.TextSize = 12
-    fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
-    fpsLabel.Parent = fpsCard
-    for index, value in ipairs({30, 60, 120, 144, 999}) do
-        local button = Instance.new("TextButton")
-        button.Position = UDim2.new((index - 1) / 5, 8, 0, 29)
-        button.Size = UDim2.new(1/5, -10, 0, 27)
-        button.BackgroundColor3 = Theme.ElementBg
-        button.BorderSizePixel = 0
-        button.Font = Enum.Font.GothamBold
-        button.Text = value == 999 and "MAX" or tostring(value)
-        button.TextColor3 = Theme.TextMuted
-        button.TextSize = 9
-        button.Parent = fpsCard
-        Instance.new("UICorner", button).CornerRadius = UDim.new(0, 4)
-        button.Activated:Connect(function()
-            State.FPSCap = value
-            local ok = Performance:SetFPSCap(value)
-            fpsLabel.Text = "FPS CAP • " .. tostring(value == 999 and "Unlimited" or value)
-            saveSettingsIfReady()
-            if not ok then showNotification("Unsupported", "setfpscap is unavailable in this executor.", "error") end
-        end)
-    end
-    setPresetButtonVisuals(State.OptimizationPreset or "Default")
-
 	local performanceInfo = Instance.new("Frame")
-	performanceInfo.LayoutOrder = 13
+	performanceInfo.LayoutOrder = 7
 	performanceInfo.Size = UDim2.new(1, 0, 0, 78)
 	performanceInfo.BackgroundColor3 = Theme.CardSoft
 	performanceInfo.BackgroundTransparency = 0
@@ -30974,7 +30538,7 @@ objectiveBrainCorner.Parent = objectiveBrainStatusLabel
 	performanceInfoText.Size = UDim2.new(1, -32, 0, 36)
 	performanceInfoText.BackgroundTransparency = 1
 	performanceInfoText.Font = Enum.Font.Gotham
-	performanceInfoText.Text = "Balanced is the safe everyday preset. Cleanup removes only dead non-boss Titans. Disable 3D Rendering intentionally shows a black world until switched off."
+	performanceInfoText.Text = "Low Graphics + Disable Effects are safest. Damage Text and Injury/Kill Flash removal are lightweight. Colossal raids suspend map-prop culling automatically."
 	performanceInfoText.TextColor3 = Theme.TextMuted
 	performanceInfoText.TextSize = 10
 	performanceInfoText.TextWrapped = true
@@ -31271,13 +30835,17 @@ function applyProfile(profile, autoLoadMode)
     if Controls.BuffFoundersOrder then Controls.BuffFoundersOrder:Set(profile.BuffFoundersOrderEnabled ~= false, true) end
     if Controls.BuffOrderRevolution then Controls.BuffOrderRevolution:Set(profile.BuffOrderRevolutionEnabled ~= false, true) end
     if Controls.RaidAutoOpenChests then Controls.RaidAutoOpenChests:Set(profile.RaidAutoOpenChestsEnabled == true, true) end
-	State.TargetPriority = ({Balanced=true, Nearest=true, Objective=true, Boss=true, Abnormal=true})[tostring(profile.TargetPriority or "Balanced")] and tostring(profile.TargetPriority or "Balanced") or "Balanced"
-	if refreshTargetPriorityUI then refreshTargetPriorityUI() end
-	cachedTitanCandidatesAt = 0
+	State.AbilitySlot1Enabled = profile.AbilitySlot1Enabled ~= false
+	State.AbilitySlot2Enabled = profile.AbilitySlot2Enabled ~= false
+	State.AbilitySlot3Enabled = profile.AbilitySlot3Enabled ~= false
+	State.AbilitySlot4Enabled = profile.AbilitySlot4Enabled ~= false
+	State.AbilitySlot5Enabled = profile.AbilitySlot5Enabled ~= false
 	Controls.AutoRefill:Set(profile.AutoRefillEnabled, true)
 	if Controls.AutoSkipCutscene then
 		Controls.AutoSkipCutscene:Set(SliceHubClampAutoSkipCutscene(profile.AutoSkipCutsceneEnabled), true)
 	end
+	Controls.AutoEscape:Set(profile.AutoEscapeEnabled, true)
+	Controls.ExpandHitboxes:Set(profile.ExpandHitboxesEnabled, true)
 	if Controls.LowGraphics then
 		Controls.LowGraphics:Set(profile.PerformanceModeEnabled, true)
 	end
@@ -31296,13 +30864,6 @@ function applyProfile(profile, autoLoadMode)
 	if Controls.RemoveDamageText then
 		Controls.RemoveDamageText:Set(profile.RemoveDamageTextEnabled == true, true)
 	end
-    State.OptimizationPreset = tostring(profile.OptimizationPreset or "Default")
-    if Controls.CleanupDeadTitans then Controls.CleanupDeadTitans:Set(profile.CleanupDeadTitansEnabled == true, true) end
-    if Controls.RemoveFog then Controls.RemoveFog:Set(profile.RemoveFogEnabled == true, true) end
-    if Controls.DisablePostProcessing then Controls.DisablePostProcessing:Set(profile.DisablePostProcessingEnabled == true, true) end
-    if Controls.Disable3DRendering then Controls.Disable3DRendering:Set(profile.Disable3DRenderingEnabled == true, true) end
-    State.FPSCap = math.clamp(math.floor((tonumber(profile.FPSCap) or 60) + 0.5), 30, 999)
-    Performance:SetFPSCap(State.FPSCap)
 	if Controls.AutoMissionLimit then
 		Controls.AutoMissionLimit:Set(profile.AutoMissionLimit or 0, true)
 	end
@@ -31460,7 +31021,7 @@ configInfoText.Position = UDim2.fromOffset(16, 31)
 configInfoText.Size = UDim2.new(1, -32, 0, 23)
 configInfoText.BackgroundTransparency = 1
 configInfoText.Font = Enum.Font.Gotham
-configInfoText.Text = string.format("Speed %d  •  Height %d  •  Range %d  •  Paced burst %.3fs", Config.KillSpeed, Config.SkyHeight, Config.AttackRange, Config.MultiTargetRemoteSpacing)
+configInfoText.Text = string.format("Speed %d  •  Height %d  •  Hitbox %d³  •  Paced burst %.3fs", Config.KillSpeed, Config.SkyHeight, Config.HitboxSize.X, Config.MultiTargetRemoteSpacing)
 configInfoText.TextColor3 = Theme.TextMuted
 configInfoText.TextSize = 10
 configInfoText.TextXAlignment = Enum.TextXAlignment.Left
@@ -34539,7 +34100,7 @@ local function V5WriteBootstrap()
         string.format("%q", tostring(BUILD.Tier or "FREE")),
         "\n",
         "local BUILD_VERSION = ",
-        string.format("%q", tostring(BUILD.Version or "9.8.2.5")),
+        string.format("%q", tostring(BUILD.Version or "9.8.2.0")),
         "\n",
         "local KEY_API_DEFAULT = ",
         string.format("%q", SLICEHUB_KEY_API_DEFAULT),
@@ -34658,7 +34219,7 @@ environment.SliceHubKeyGateConfig = {
     Source = selectedSource,
     SourceName = selectedName,
     BuildTier = tostring(BUILD.Tier or "FREE"),
-    Version = tostring(BUILD.Version or "9.8.2.5"),
+    Version = tostring(BUILD.Version or "9.8.2.0"),
     ApiUrl = SLICEHUB_KEY_API_DEFAULT,
     DiscordInvite = SLICEHUB_DISCORD_INVITE,
 }
