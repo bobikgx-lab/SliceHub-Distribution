@@ -6,7 +6,7 @@ getgenv().SliceHub = getgenv().SliceHub or {}
 local BUILD = {
     Tier = "PREMIUM",
     IsPremium = true,
-    Version = "9.8.2.5",
+    Version = "9.8.2.6",
 
     Flags = {
         PremiumCombat = true,
@@ -777,7 +777,7 @@ do
             clientId = deviceId,
             client = "SliceHub",
             version = tostring(
-                Config.Version or "9.8.2.5"
+                Config.Version or "9.8.2.6"
             ),
         }
 
@@ -1858,7 +1858,8 @@ local Settings = {
 	ToggleKeyName = "RightShift", -- laptop-friendly default; change it in Settings tab
 	AutoLoadConfig = false,
 	AutoLoadConfigName = "",
-	AutoWeaponSwitch = false, -- lobby-only; never attempts to change weapons inside a mission
+	WeaponLoadoutMode = "Auto", -- Auto / Blades / Spears; lobby-only
+	AutoWeaponSwitch = true, -- compatibility mirror for older settings files
 }
 
 local SavedConfigs = {}
@@ -2958,11 +2959,19 @@ local function normalizeSettings(data)
 		autoName = ""
 	end
 
+	local loadoutMode = tostring(data.WeaponLoadoutMode or "")
+	if loadoutMode ~= "Auto" and loadoutMode ~= "Blades" and loadoutMode ~= "Spears" then
+		-- V9.8.2.6 migration: old builds only had a hidden AutoWeaponSwitch boolean.
+		-- Missing/legacy values now default to the visible AUTO loadout mode.
+		loadoutMode = "Auto"
+	end
+
 	return {
 		ToggleKeyName = keyName,
 		AutoLoadConfig = data.AutoLoadConfig == true,
 		AutoLoadConfigName = autoName,
-		AutoWeaponSwitch = data.AutoWeaponSwitch == true,
+		WeaponLoadoutMode = loadoutMode,
+		AutoWeaponSwitch = loadoutMode == "Auto",
 	}
 end
 
@@ -3646,6 +3655,92 @@ local countdownLabel = label(right, "Countdown: idle", UDim2.fromOffset(14, 296)
 local createBtn = button(right, "LAUNCH EXACT ENGINE", UDim2.fromOffset(14, 324), UDim2.new(1, -28, 0, 38), Theme.Accent)
 local cancelBtn = button(right, "CANCEL COUNTDOWN", UDim2.fromOffset(14, 370), UDim2.new(1, -28, 0, 32), Theme.Danger)
 
+
+-- V9.8.2.6 visible lobby loadout controls. These only operate in the lobby;
+-- mission places never attempt to swap Blades and Thunder Spears.
+V9826LobbyLoadoutUI = V9826LobbyLoadoutUI or {Buttons = {}}
+label(right, "Weapon Loadout", UDim2.fromOffset(14, 410), UDim2.new(1, -28, 0, 18), true)
+V9826LobbyLoadoutUI.Status = label(right, "Loading equipped weapon...", UDim2.fromOffset(14, 430), UDim2.new(1, -28, 0, 18), false)
+V9826LobbyLoadoutUI.Status.TextSize = 9
+
+local loadoutHolder = Instance.new("Frame")
+loadoutHolder.Position = UDim2.fromOffset(14, 452)
+loadoutHolder.Size = UDim2.new(1, -28, 0, 36)
+loadoutHolder.BackgroundTransparency = 1
+loadoutHolder.Parent = right
+
+local function makeLoadoutButton(mode, textValue, xScale, widthScale)
+	local loadoutButton = button(
+		loadoutHolder,
+		textValue,
+		UDim2.new(xScale, 0, 0, 0),
+		UDim2.new(widthScale, -4, 1, 0),
+		Theme.Card
+	)
+	V9826LobbyLoadoutUI.Buttons[mode] = loadoutButton
+	loadoutButton.Activated:Connect(function()
+		Settings.WeaponLoadoutMode = mode
+		Settings.AutoWeaponSwitch = mode == "Auto"
+		local okSave, saveMessage = saveSettings()
+		if V9826RefreshLobbyLoadoutUI then pcall(V9826RefreshLobbyLoadoutUI) end
+
+		task.spawn(function()
+			local switcher = V9825LobbyWeaponSwitch
+			if type(switcher) ~= "table" or type(switcher.Prepare) ~= "function" then
+				notify("Loadout saved", mode .. " will be applied before launch.", okSave and "success" or "error")
+				return
+			end
+
+			local switchOk, switchReason, desired = switcher.Prepare(captureConfig(), mode)
+			if V9826RefreshLobbyLoadoutUI then pcall(V9826RefreshLobbyLoadoutUI) end
+			if switchOk then
+				notify("Weapon equipped", tostring(desired or mode) .. " is ready.", "success")
+			else
+				notify("Weapon switch failed", tostring(switchReason or saveMessage or "Unknown error"), "error")
+			end
+		end)
+	end)
+	return loadoutButton
+end
+
+makeLoadoutButton("Auto", "AUTO", 0, 0.26)
+makeLoadoutButton("Blades", "EQUIP BLADES", 0.27, 0.355)
+makeLoadoutButton("Spears", "EQUIP SPEARS", 0.635, 0.365)
+
+V9826RefreshLobbyLoadoutUI = function()
+	local mode = tostring(Settings.WeaponLoadoutMode or "Auto")
+	if mode ~= "Auto" and mode ~= "Blades" and mode ~= "Spears" then mode = "Auto" end
+	Settings.WeaponLoadoutMode = mode
+	Settings.AutoWeaponSwitch = mode == "Auto"
+
+	local detected = "Unknown"
+	local desired = mode
+	if type(V9825LobbyWeaponSwitch) == "table" then
+		if type(V9825LobbyWeaponSwitch.Detect) == "function" then
+			local ok, value = pcall(V9825LobbyWeaponSwitch.Detect)
+			if ok and (value == "Blades" or value == "Spears") then detected = value end
+		end
+		if type(V9825LobbyWeaponSwitch.DesiredFor) == "function" then
+			local ok, value = pcall(V9825LobbyWeaponSwitch.DesiredFor, captureConfig(), mode)
+			if ok and value then desired = value end
+		end
+	end
+
+	if V9826LobbyLoadoutUI.Status then
+		V9826LobbyLoadoutUI.Status.Text = "Mode: " .. string.upper(mode)
+			.. "  •  Equipped: " .. string.upper(detected)
+			.. "  •  Launch: " .. string.upper(tostring(desired or "UNCHANGED"))
+	end
+
+	for buttonMode, loadoutButton in pairs(V9826LobbyLoadoutUI.Buttons or {}) do
+		local selected = buttonMode == mode
+		loadoutButton.BackgroundColor3 = selected and Theme.Accent or Theme.Card
+		loadoutButton.TextColor3 = selected and Theme.Text or Theme.Muted
+	end
+end
+
+V9826RefreshLobbyLoadoutUI()
+
 local mapButtons, objButtons, diffButtons, modButtons = {}, {}, {}, {}
 
 V98WavesUI = V98WavesUI or {
@@ -3740,6 +3835,7 @@ local function refreshPreview()
     local pct = math.clamp(State.Delay / 30, 0, 1)
     fill.Size = UDim2.fromScale(pct, 1)
     knob.Position = UDim2.fromScale(pct, 0.5)
+    if V9826RefreshLobbyLoadoutUI then pcall(V9826RefreshLobbyLoadoutUI) end
 end
 
 local refreshAll
@@ -4284,9 +4380,13 @@ V9825LobbyWeaponSwitch = V9825LobbyWeaponSwitch or {
     LastStatus = "Idle",
 }
 
-function V9825LobbyWeaponSwitch.DesiredFor(config)
+function V9825LobbyWeaponSwitch.DesiredFor(config, requestedMode)
     config = type(config) == "table" and config or State
     if tostring(config.CreateMode or "Mission") == "Waves" then return nil end
+
+    local mode = tostring(requestedMode or (Settings and Settings.WeaponLoadoutMode) or "Auto")
+    if mode == "Blades" or mode == "Spears" then return mode end
+
     if tostring(config.CreateMode or "Mission") == "Raid"
         and tostring(config.RaidChoice or "") == "Shiganshina (Col)" then
         return "Spears"
@@ -4327,8 +4427,10 @@ function V9825LobbyWeaponSwitch.SyncSliceHubRoute(desired)
 end
 
 function V9825LobbyWeaponSwitch.Detect()
+    -- Live-only detection is mandatory here. The old settings fallback could report
+    -- the desired weapon as equipped before the native lobby actually changed it.
     if V96LobbyAutoUpgrade and type(V96LobbyAutoUpgrade.DetectWeapon) == "function" then
-        local ok, weapon = pcall(V96LobbyAutoUpgrade.DetectWeapon)
+        local ok, weapon = pcall(V96LobbyAutoUpgrade.DetectWeapon, true)
         if ok and (weapon == "Blades" or weapon == "Spears") then return weapon end
     end
     return "Unknown"
@@ -4417,17 +4519,23 @@ function V9825LobbyWeaponSwitch.TryNativeSwitch(desired)
     return false, "could not confirm " .. desired .. " loadout"
 end
 
-function V9825LobbyWeaponSwitch.Prepare(config)
-    local desired = V9825LobbyWeaponSwitch.DesiredFor(config)
+function V9825LobbyWeaponSwitch.Prepare(config, requestedMode)
+    local desired = V9825LobbyWeaponSwitch.DesiredFor(config, requestedMode)
     if not desired then return true, "Waves ignored", nil end
     if V9825LobbyWeaponSwitch.Busy then return false, "weapon switch already running", desired end
 
     V9825LobbyWeaponSwitch.Busy = true
     V9825LobbyWeaponSwitch.LastStatus = "Preparing " .. desired
-    V9825LobbyWeaponSwitch.SyncSliceHubRoute(desired)
     local ok, reason = V9825LobbyWeaponSwitch.TryNativeSwitch(desired)
+    if ok then
+        local synced, syncReason = V9825LobbyWeaponSwitch.SyncSliceHubRoute(desired)
+        if not synced then
+            reason = tostring(reason) .. " • " .. tostring(syncReason)
+        end
+    end
     V9825LobbyWeaponSwitch.Busy = false
     V9825LobbyWeaponSwitch.LastStatus = ok and ("Ready • " .. desired) or ("Failed • " .. tostring(reason))
+    if V9826RefreshLobbyLoadoutUI then pcall(V9826RefreshLobbyLoadoutUI) end
     return ok, reason, desired
 end
 
@@ -5394,8 +5502,9 @@ local function runMissionFlow()
         return
     end
 
-    if Settings.AutoWeaponSwitch == true and State.CreateMode ~= "Waves" then
-        local switchOk, switchReason, desired = V9825LobbyWeaponSwitch.Prepare(captureConfig())
+    if State.CreateMode ~= "Waves" then
+        local loadoutMode = tostring(Settings.WeaponLoadoutMode or "Auto")
+        local switchOk, switchReason, desired = V9825LobbyWeaponSwitch.Prepare(captureConfig(), loadoutMode)
         if not switchOk then
             notify("Weapon switch failed", tostring(desired or "Weapon") .. " • " .. tostring(switchReason), "error")
             setOwnMenuVisible(true)
@@ -6146,7 +6255,7 @@ function V96LobbyAutoUpgrade.Match(text, aliases)
     return false
 end
 
-function V96LobbyAutoUpgrade.DetectWeapon()
+function V96LobbyAutoUpgrade.DetectWeapon(liveOnly)
     local spearScore, bladeScore = 0, 0
 
     local function scoreText(raw, weight)
@@ -6206,6 +6315,10 @@ function V96LobbyAutoUpgrade.DetectWeapon()
     end
     if bladeScore >= spearScore + 3 and bladeScore >= 6 then
         return "Blades", spearScore, bladeScore
+    end
+
+    if liveOnly == true then
+        return "Unknown", spearScore, bladeScore
     end
 
     -- Mission settings are only a last-resort hint; live equipment evidence above wins.
@@ -8826,14 +8939,13 @@ local keybindButton = button(settingsPanel, "CHANGE MENU KEY", UDim2.fromOffset(
 local resetKeyButton = button(settingsPanel, "RESET TO RIGHTSHIFT", UDim2.fromOffset(234, 96), UDim2.new(0, 190, 0, 36), Theme.Card)
 local saveSettingsButton = button(settingsPanel, "SAVE SETTINGS", UDim2.fromOffset(434, 96), UDim2.new(0, 170, 0, 36), Theme.Card)
 
-local autoWeaponSwitchButton = button(settingsPanel, "AUTO WEAPON SWITCH: OFF", UDim2.fromOffset(14, 148), UDim2.new(0, 410, 0, 36), Theme.Card)
-local autoLoadToggleButton = button(settingsPanel, "AUTO LOAD CONFIG: OFF", UDim2.fromOffset(14, 200), UDim2.new(0, 210, 0, 36), Theme.Card)
-local clearAutoLoadButton = button(settingsPanel, "CLEAR AUTO LOAD", UDim2.fromOffset(234, 200), UDim2.new(0, 190, 0, 36), Theme.Danger)
+local autoLoadToggleButton = button(settingsPanel, "AUTO LOAD CONFIG: OFF", UDim2.fromOffset(14, 148), UDim2.new(0, 210, 0, 36), Theme.Card)
+local clearAutoLoadButton = button(settingsPanel, "CLEAR AUTO LOAD", UDim2.fromOffset(234, 148), UDim2.new(0, 190, 0, 36), Theme.Danger)
 
 local storageInfo = label(
 	settingsPanel,
 	"",
-	UDim2.fromOffset(14, 254),
+	UDim2.fromOffset(14, 202),
 	UDim2.new(1, -28, 0, 112),
 	false
 )
@@ -8850,13 +8962,11 @@ V94LobbyRefresh.Settings = function()
 	local autoText = (Settings.AutoLoadConfig and autoName ~= "") and ("ON: " .. autoName) or "OFF"
 	autoLoadToggleButton.Text = "AUTO LOAD CONFIG: " .. autoText
 	autoLoadToggleButton.BackgroundColor3 = (Settings.AutoLoadConfig and autoName ~= "") and Theme.Accent or Theme.Card
-	autoWeaponSwitchButton.Text = "AUTO WEAPON SWITCH: " .. (Settings.AutoWeaponSwitch and "ON" or "OFF")
-	autoWeaponSwitchButton.BackgroundColor3 = Settings.AutoWeaponSwitch and Theme.Accent or Theme.Card
 
 	storageInfo.Text = "Storage: " .. ((readfileFn and writefileFn) and "File" or "Session only")
 		.. "\nSettings file: " .. SettingsFileName
 		.. "\nAuto-load config: " .. autoText
-		.. "\nWeapon switch: lobby-only • Missions use Blades • Colossal uses Spears • Waves ignored"
+		.. "\nWeapon loadout is controlled visibly on the Create tab."
 		.. "\nTip: RightShift is usually safer than END on laptops."
 end
 
@@ -8878,17 +8988,6 @@ saveSettingsButton.Activated:Connect(function()
 	local ok, msg = saveSettings()
 	if V94LobbyRefresh.Settings then V94LobbyRefresh.Settings() end
 	notify(ok and "Settings saved" or "Save failed", msg, ok and "success" or "error")
-end)
-
-autoWeaponSwitchButton.Activated:Connect(function()
-	Settings.AutoWeaponSwitch = not Settings.AutoWeaponSwitch
-	local ok, msg = saveSettings()
-	if V94LobbyRefresh.Settings then V94LobbyRefresh.Settings() end
-	notify(
-		ok and "Auto Weapon Switch updated" or "Save failed",
-		ok and (Settings.AutoWeaponSwitch and "Lobby launches now select Blades or Spears automatically." or "Automatic lobby weapon switching is OFF.") or msg,
-		ok and "success" or "error"
-	)
 end)
 
 autoLoadToggleButton.Activated:Connect(function()
@@ -10877,7 +10976,7 @@ local Config = {
     -- Keep these values isolated so the legacy physical wave engine remains available
     -- as a fallback without touching raid routing or Spear ownership.
     V6ExactBladeEnabled = true,
-    V6ExactBladeMaxTargets = 10,
+    V6ExactBladeMaxTargets = SliceHubMissionTPSMax(),
     V6ExactBladeCadence = 0.240,
     V6ExactBladeNoTargetDelay = 0.050,
     V6ExactBladeRegisterMin = 625,
@@ -10888,7 +10987,7 @@ local Config = {
     -- saved configs/UI references, while these values drive the new raid profiles.
     V9RaidCombatEnabled = true,
     V9BladeQueueMaxTargets = SliceHubMissionTPSMax(),
-    V9BladeBankSize = math.min(10, SliceHubMissionTPSMax()),
+    V9BladeBankSize = math.min(6, SliceHubMissionTPSMax()), -- AOT:R accepts about six unique nape registers per Slash
     V9BladeSecondBankDelay = 0.120,
     V9BladeCycleCadence = 0.240,
     V9BossBladeRegistersPerSlash = 5,
@@ -15732,38 +15831,84 @@ function V4RaidDirector.ObjectiveText()
 end
 
 
-function V4RaidDirector.DetectRaidName()
-    -- V9.8.2.4: only live raid evidence may activate a raid runtime.
-    -- Saved lobby selections and MissionObjectiveHistory are intentionally ignored
-    -- because they can survive teleports and falsely lock normal missions in Free.
-    local liveMap = nil
-    local liveSpecial = nil
-    pcall(function()
-        liveMap = V3MissionIdentity and V3MissionIdentity.ExactWorkspaceMap and V3MissionIdentity.ExactWorkspaceMap() or nil
-        liveSpecial = V3MissionIdentity and V3MissionIdentity.InferSpecialMissionTypeFromTasks and V3MissionIdentity.InferSpecialMissionTypeFromTasks() or nil
-    end)
+function V4RaidDirector.ActiveRaidBoss(markerName)
+    local titansFolder = Workspace:FindFirstChild(Config.TitansFolderName)
+    if not titansFolder then return nil end
 
-    local armoredBoss = Workspace:FindFirstChild("Armored_Boss", true)
-    local femaleBoss = Workspace:FindFirstChild("Female_Boss", true)
-    local colossalBoss = Workspace:FindFirstChild("Colossal_Boss", true)
-    local attackBoss = Workspace:FindFirstChild("Attack_Boss", true)
-
-    if liveMap == "Loading Docks" and liveSpecial == "Stall" and not colossalBoss then
-        return "Unknown"
+    -- Direct active boss model under the live Titans folder.
+    local direct = titansFolder:FindFirstChild(markerName, true)
+    if direct then
+        local model = direct:IsA("Model") and direct or direct:FindFirstAncestorOfClass("Model")
+        while model and model.Parent ~= titansFolder do model = model.Parent end
+        if model and model.Parent == titansFolder and isTitanAlive(model) and getTitanTargetPart(model) then
+            return model
+        end
     end
 
-    if armoredBoss then return "Armored Raid" end
-    if femaleBoss then return "Female Raid" end
-    if colossalBoss then return "Colossal Raid" end
-    if attackBoss then return "Attack Raid" end
+    -- Some raids expose a workspace objective wrapper whose ObjectValue points at
+    -- the real live boss. The wrapper by itself is never sufficient evidence.
+    local marker = Workspace:FindFirstChild(markerName, true)
+    if marker then
+        for _, object in ipairs(marker:GetDescendants()) do
+            if object:IsA("ObjectValue") and object.Value and object.Value:IsDescendantOf(titansFolder) then
+                local model = object.Value
+                while model and model.Parent ~= titansFolder do model = model.Parent end
+                if model and model.Parent == titansFolder and isTitanAlive(model) and getTitanTargetPart(model) then
+                    return model
+                end
+            end
+        end
+    end
 
+    return nil
+end
+
+function V4RaidDirector.ClearlyNormalMission()
+    local taskText = ""
+    pcall(function()
+        taskText = V4RaidDirector.Lower(
+            (V3MissionIdentity and V3MissionIdentity.CombinedTasksLower and V3MissionIdentity.CombinedTasksLower() or "")
+            .. " | " .. tostring(V4RaidDirector.VisibleObjectiveText() or "")
+        )
+    end)
+
+    local generic = {
+        "slay titans", "most kills", "escape grabs", "heal injuries",
+        "avoid damage", "one shot titans", "blind titans", "no refills",
+    }
+    local raidSpecific = {
+        "armored titan", "attack titan", "female titan", "colossal",
+        "annie", "reiner", "bertholdt", "bertolt", "cannon",
+        "defend eren", "wake eren", "boulder", "boat", "ship", "raid",
+    }
+
+    local sawGeneric = false
+    for _, phrase in ipairs(generic) do
+        if string.find(taskText, phrase, 1, true) then sawGeneric = true break end
+    end
+    if not sawGeneric then return false end
+
+    for _, phrase in ipairs(raidSpecific) do
+        if string.find(taskText, phrase, 1, true) then return false end
+    end
+
+    return true
+end
+
+function V4RaidDirector.DetectRaidName()
+    -- V9.8.2.6: a clearly normal objective board wins over stale raid state.
+    -- This must run before workspace Raid/RaidName attributes because AOT:R can
+    -- leave those attributes behind after returning from an Attack Raid.
+    if V4RaidDirector.ClearlyNormalMission() then return "Unknown" end
+
+    -- Explicit raid attributes and live boss references are authoritative only
+    -- after the normal-mission rejection above.
     local raidAttribute = V4RaidDirector.Lower(
         Workspace:GetAttribute("Raid")
         or Workspace:GetAttribute("RaidName")
         or ""
     )
 
-    -- Objective/Map attributes alone are not strong enough; only explicit Raid fields count.
     if raidAttribute ~= "" then
         if string.find(raidAttribute, "armored", 1, true) then return "Armored Raid" end
         if string.find(raidAttribute, "female", 1, true) then return "Female Raid" end
@@ -15772,6 +15917,42 @@ function V4RaidDirector.DetectRaidName()
             or string.find(raidAttribute, "attack raid", 1, true) then
             return "Attack Raid"
         end
+    end
+
+    if V4RaidDirector.ActiveRaidBoss("Armored_Boss") then return "Armored Raid" end
+    if V4RaidDirector.ActiveRaidBoss("Female_Boss") then return "Female Raid" end
+    if V4RaidDirector.ActiveRaidBoss("Colossal_Boss") then return "Colossal Raid" end
+    if V4RaidDirector.ActiveRaidBoss("Attack_Boss") then return "Attack Raid" end
+
+    local taskText = V4RaidDirector.ObjectiveText()
+    local freshRaidChoice = ""
+    local metadataAge = math.huge
+    pcall(function()
+        if not MissionObjectiveHistory.SelectedCreateMode then readLastMissionInfoForWebhook() end
+        local updatedAt = tonumber(MissionObjectiveHistory.MetadataUpdatedAt) or 0
+        metadataAge = updatedAt > 0 and math.max(0, os.time() - updatedAt) or math.huge
+        if tostring(MissionObjectiveHistory.SelectedCreateMode or "") == "Raid" and metadataAge <= 300 then
+            freshRaidChoice = tostring(MissionObjectiveHistory.SelectedRaidChoice or "")
+        end
+    end)
+
+    -- P1 raid phases may not have spawned the boss yet. Require fresh Raid launch
+    -- metadata plus matching live raid text; never trust the saved selection alone.
+    if freshRaidChoice == "Shiganshina (Arm)"
+        and (string.find(taskText, "boat", 1, true) or string.find(taskText, "ship", 1, true) or string.find(taskText, "armored", 1, true)) then
+        return "Armored Raid"
+    end
+    if freshRaidChoice == "Trost (Att)"
+        and (string.find(taskText, "defend eren", 1, true) or string.find(taskText, "boulder", 1, true) or string.find(taskText, "attack titan", 1, true)) then
+        return "Attack Raid"
+    end
+    if freshRaidChoice == "Stohess (Female)"
+        and (string.find(taskText, "annie", 1, true) or string.find(taskText, "female titan", 1, true)) then
+        return "Female Raid"
+    end
+    if freshRaidChoice == "Shiganshina (Col)"
+        and (string.find(taskText, "cannon", 1, true) or string.find(taskText, "colossal", 1, true)) then
+        return "Colossal Raid"
     end
 
     return "Unknown"
@@ -18754,7 +18935,6 @@ function V4RaidDirector.Refresh()
     V4RaidDirector.Enabled = V4RaidDirector.RaidName ~= "Unknown"
 
     if not V4RaidDirector.Enabled then
-        V4RaidDirector.LastLockedWarning = nil
         V4RaidDirector.CombatPaused = false
         V4RaidDirector.Phase = "Idle"
         V4RaidDirector.BossTitan = nil
@@ -23557,25 +23737,25 @@ function V6ExactBlade.Cycle()
         ) ~= nil
 
         if (not raidEnabled or objectiveGuardianPlan) and #plan > bankSize then
-            local bankA = {}
-            local bankB = {}
-            for index, item in ipairs(plan) do
-                if index <= bankSize then
-                    bankA[#bankA + 1] = item
-                else
-                    bankB[#bankB + 1] = item
+            -- V9.8.2.6: the server only confirms roughly six unique nape registers
+            -- per Slash. Process every bank instead of the old two-bank split, so a
+            -- Premium value of 20 becomes 6 + 6 + 6 + 2 rather than dying at 6 + 6.
+            local bankStart = 1
+            while bankStart <= #plan do
+                local bankEnd = math.min(#plan, bankStart + bankSize - 1)
+                local bank = {}
+                for index = bankStart, bankEnd do
+                    bank[#bank + 1] = plan[index]
                 end
-            end
 
-            local s1, r1 = V6ExactBlade.SendPlanBank(post, bankA)
-            slashCount += s1
-            registerCount += r1
+                local slashes, registers = V6ExactBlade.SendPlanBank(post, bank)
+                slashCount += slashes
+                registerCount += registers
+                bankStart = bankEnd + 1
 
-            if #bankB > 0 then
-                task.wait(math.max(0.05, tonumber(Config.V9BladeSecondBankDelay) or 0.12))
-                local s2, r2 = V6ExactBlade.SendPlanBank(post, bankB)
-                slashCount += s2
-                registerCount += r2
+                if bankStart <= #plan then
+                    task.wait(math.max(0.05, tonumber(Config.V9BladeSecondBankDelay) or 0.12))
+                end
             end
         else
             local s, r = V6ExactBlade.SendPlanBank(post, plan)
@@ -30558,7 +30738,7 @@ V5BuffStatusPadding.Parent = V5BuffStatusLabel
     end
  end)
 
-Controls.TitansPerHit = createIntegerSlider(WeaponUI.BladesPage or mainPage, 12, "Titans Per Swing", "One attack cycle queues up to " .. tostring(SliceHubMissionTPSMax()) .. " Titans in two fast micro-waves.", SliceHubMissionTPSMin(), SliceHubMissionTPSMax(), SliceHubMissionClampTPS(Config.TitansPerHit, SliceHubMissionTPSMax()), function(value)
+Controls.TitansPerHit = createIntegerSlider(WeaponUI.BladesPage or mainPage, 12, "Titans Per Swing", "One attack cycle queues up to " .. tostring(SliceHubMissionTPSMax()) .. " Titans in server-safe Slash banks.", SliceHubMissionTPSMin(), SliceHubMissionTPSMax(), SliceHubMissionClampTPS(Config.TitansPerHit, SliceHubMissionTPSMax()), function(value)
 	Config.TitansPerHit = SliceHubMissionClampTPS(value, SliceHubMissionTPSMax())
 	lastBladeBurstCount = math.min(lastBladeBurstCount, Config.TitansPerHit)
 	saveSettingsIfReady()
