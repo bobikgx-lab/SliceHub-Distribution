@@ -34616,77 +34616,59 @@ end
 
 pcall(V5WriteBootstrap)
 
-local selectedName
-local selectedSource
+-- ==================== CLEAN RELOADER (V9.8.2.7) ====================
+
+-- Prevent duplicate instances
+if getgenv().SliceHubLoaded then
+    print("[SliceHub] Cleaning previous instance...")
+    pcall(function() if getgenv().SliceHubAutoFarm then getgenv().SliceHubAutoFarm:Stop() end end)
+end
+
+getgenv().SliceHubLoaded = true
+
+-- Destroy old key gate GUI
+pcall(function()
+    local old = game.CoreGui:FindFirstChild("SliceHubKeyGate") or 
+                game.Players.LocalPlayer:FindFirstChild("PlayerGui"):FindFirstChild("SliceHubKeyGate")
+    if old then old:Destroy() end
+end)
+
+local selectedName, selectedSource
+
 if isLobby then
-    selectedName = "SliceHub Lobby Creator V9.4 • Unified Remaster"
+    selectedName = "SliceHub Lobby Creator V9"
     selectedSource = LOBBY_SOURCE
 elseif isLikelyMainMenu then
-    selectedName = "AOT MainMenu Director V5"
+    selectedName = "AOT MainMenu Director"
     selectedSource = MAINMENU_SOURCE
 else
-    selectedName = "SliceHub AOT:R V9.4.3 • Colossal Route Stability Hotfix"
+    selectedName = "SliceHub AOT:R V9.8.2.7"
     selectedSource = MISSION_SOURCE
 end
 
-if isLobby then
-    MISSION_SOURCE = nil
-    MAINMENU_SOURCE = nil
-elseif isLikelyMainMenu then
-    LOBBY_SOURCE = nil
-    MISSION_SOURCE = nil
-else
-    LOBBY_SOURCE = nil
-    MAINMENU_SOURCE = nil
-end
-if type(gcinfo) == "function" then
-    print("[AOT All-In-One V9] memory KB", gcinfo())
-end
+print("[SliceHub] Loading: " .. selectedName)
 
-local loader = loadstring or load
-if type(loader) ~= "function" then
-    warn("[AOT All-In-One V9] loadstring/load is not available in this executor.")
-    return
-end
-
-local environment =
-    type(getgenv) == "function"
-    and getgenv()
-    or _G
-
-environment.SliceHubKeyGateConfig = {
+-- Pass config to key gate
+getgenv().SliceHubKeyGateConfig = {
     Source = selectedSource,
     SourceName = selectedName,
     BuildTier = tostring(BUILD.Tier or "FREE"),
-    Version = tostring(BUILD.Version or "9.8.2.5"),
+    Version = tostring(BUILD.Version or "9.8.2.7"),
     ApiUrl = SLICEHUB_KEY_API_DEFAULT,
     DiscordInvite = SLICEHUB_DISCORD_INVITE,
 }
 
-local gateCompiled, gateCompileError =
-    loader(SLICEHUB_KEY_GATE_SOURCE)
-
-if type(gateCompiled) ~= "function" then
-    warn(
-        "[AOT All-In-One V9] Key gate compile failed: "
-        .. tostring(gateCompileError)
-    )
+local gateChunk, compileErr = loadstring(SLICEHUB_KEY_GATE_SOURCE)
+if not gateChunk then
+    warn("[SliceHub] Failed to compile key gate:", compileErr)
     return
 end
 
-print(
-    "[AOT All-In-One V9] waiting for key approval",
-    selectedName
-)
-
 task.spawn(function()
-    local ok, runtimeError =
-        pcall(gateCompiled)
-
+    local ok, runtimeErr = pcall(gateChunk)
     if not ok then
-        warn(
-            "[AOT All-In-One V9] Key gate runtime error: "
-            .. tostring(runtimeError)
-        )
+        warn("[SliceHub] Key gate runtime error:", runtimeErr)
+    else
+        print("[SliceHub] Successfully reloaded!")
     end
 end)
