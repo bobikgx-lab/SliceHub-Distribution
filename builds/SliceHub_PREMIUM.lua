@@ -12534,6 +12534,25 @@ function V52RefillSafety.SetPhase(phase)
     end
 end
 
+-- ==================== DIRECT BLADE REFILL (NEW) ====================
+local function DirectBladeRefill(reason)
+    local post = game:GetService("ReplicatedStorage"):FindFirstChild("Assets")
+    if post then
+        post = post:FindFirstChild("Remotes")
+    end
+    if post then
+        post = post:FindFirstChild("POST")
+    end
+
+    if post and post:IsA("RemoteEvent") then
+        post:FireServer("Attacks", "Reload")
+        print("[SliceHub][DirectRefill] Fired direct blade reload | Reason:", tostring(reason or "0/3 sets"))
+        return true
+    else
+        warn("[SliceHub][DirectRefill] Could not find POST remote!")
+        return false
+    end
+end
 local function beginStationRefill(reason, manual, refillMode, targetAmmo)
     local requestedMode = tostring(refillMode or "Blades")
 	if StationRefill.Running then return false end
@@ -13343,10 +13362,20 @@ local function beginBladeRefill(reason, allowMissingHudProbe)
                 return false
             end
 
-            if gateSegments == 0 or (gateSegments == nil and allowMissingHudProbe == true) then
-                bladeRefillArmed = false
-                V93BladeAmmoDirector.Status = "STATION REFILL REQUEST • EMPTY CURRENT BLADE"
-                return beginStationRefill("V9.3 confirmed empty current blade + 0/" .. tostring(Config.BladeSetMaximum), false) == true
+           if gateSets <= 0 then
+    bladeRefillArmed = false
+    V93BladeAmmoDirector.Status = "DIRECT REFILL • 0/3 SETS"
+
+    -- Try direct remote first (fast & clean)
+    if DirectBladeRefill("0/3 sets detected") then
+        task.wait(0.9)
+        return true
+    end
+
+    -- If remote fails, fallback to old station method
+    V93BladeAmmoDirector.Status = "STATION REFILL FALLBACK"
+    return beginStationRefill("Direct remote failed → station fallback", false) == true
+end false) == true
             end
         end
     end
