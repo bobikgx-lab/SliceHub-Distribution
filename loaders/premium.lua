@@ -1,10 +1,4 @@
-getgenv().SCRIPT_KEY = getgenv().SCRIPT_KEY or ""
-
-local url =
-    "https://raw.githubusercontent.com/" ..
-    "bobikgx-lab/SliceHub-Distribution/main/" ..
-    "builds/SliceHub_PREMIUM.lua"
-
-loadstring(game:HttpGet(
-    url .. "?v=" .. tostring(os.time())
-))()
+local e=type(getgenv)=="function" and getgenv() or _G
+e.SCRIPT_KEY=e.SCRIPT_KEY or ""
+e.SLICEHUB_REQUESTED_TIER="PREMIUM"
+loadstring(game:HttpGet("https://slicebot-production.up.railway.app/api/bootstrap?v="..tostring(os.time())))()
