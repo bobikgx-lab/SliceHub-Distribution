@@ -1,7 +1,9 @@
-# SliceHub Distribution
+# SliceHub Loaders
 
-- `loaders/free.lua` and `loaders/premium.lua` are universal game loaders.
-- The same key works across every published game for its tier.
-- One key binds to one HWID/device, while any number of Roblox accounts on that same device may run it.
-- AOT:R and PS99 are enabled. BABFT builds are included but public routing is disabled by default until ready.
-- `loaders/utility.lua` is the separate Slice Utility loader.
+This public repository contains **loaders only**. No game or Utility runtime source is stored here.
+
+- `loaders/free.lua` — personal Free loader template
+- `loaders/premium.lua` — personal Premium loader template
+- `loaders/utility.lua` — personal Slice Utility loader template
+
+All runtime delivery is authenticated by the private Railway backend using the user key and HWID.
